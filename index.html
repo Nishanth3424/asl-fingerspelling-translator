@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASL Fingerspelling Translator</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <div class="header-left">
+        <h1>ASL Fingerspelling Translator</h1>
+        <p class="subtitle">Real-time sign language recognition in your browser</p>
+      </div>
+      <div class="header-right">
+        <span id="model-chip" class="model-chip loading">Loading Model...</span>
+        <span class="badge">ENEB408B Capstone | Nishanth S.</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="video-section">
+      <div class="video-container">
+        <video id="webcam" playsinline></video>
+        <canvas id="overlay"></canvas>
+        <div id="hand-status" class="hand-status">No hand detected</div>
+      </div>
+    </div>
+
+    <div class="output-section">
+      <div class="prediction-card">
+        <div class="prediction-label">Detected Letter</div>
+        <div id="predicted-letter" class="predicted-letter">-</div>
+        <div id="confidence" class="confidence">Confidence: --</div>
+        <div class="confidence-bar-container">
+          <div id="confidence-bar" class="confidence-bar"></div>
+        </div>
+        <div id="confidence-level" class="confidence-level">--</div>
+      </div>
+
+      <div class="text-card">
+        <div class="word-builder-section">
+          <div class="text-label">Word Being Built</div>
+          <div id="current-word-display" class="current-word-display">
+            <span id="current-word-letters">-</span>
+          </div>
+          <div id="suggestions-panel" class="suggestions-panel"></div>
+        </div>
+
+        <div class="sentence-section">
+          <div class="text-label">Sentence</div>
+          <div id="translated-text" class="translated-text">
+            <span id="text-content"></span><span class="cursor">|</span>
+          </div>
+        </div>
+
+        <div class="text-hint">Drop hand to confirm word &amp; space &bull; Click a suggestion to use it</div>
+        <div class="text-controls">
+          <button id="btn-clear" onclick="clearText()">Clear All</button>
+          <button id="btn-space" onclick="addSpace()">Space</button>
+          <button id="btn-delete" onclick="deleteLast()">Delete</button>
+          <button id="btn-clearword" onclick="clearCurrentWord()">Clear Word</button>
+        </div>
+      </div>
+
+      <div class="mode-card">
+        <div class="mode-tabs">
+          <button id="tab-recognize" class="tab active" onclick="switchMode('recognize')">Recognize</button>
+          <button id="tab-practice" class="tab" onclick="switchMode('practice')">Practice</button>
+          <button id="tab-learn" class="tab" onclick="switchMode('learn')">Learn</button>
+          <button id="tab-collect" class="tab" onclick="switchMode('collect')">Calibrate</button>
+        </div>
+
+        <div id="recognize-panel" class="panel">
+          <div id="model-status" class="status-msg">Loading model...</div>
+          <div id="calibration-prompt" class="calibration-prompt" style="display:none"></div>
+          <div class="stats">
+            <span id="fps-display">FPS: --</span>
+            <span id="latency-display">Latency: --</span>
+          </div>
+          <div class="session-stats">
+            <div class="stat-item">
+              <div id="stat-letters" class="stat-value">0</div>
+              <div class="stat-label">Letters</div>
+            </div>
+            <div class="stat-item">
+              <div id="stat-words" class="stat-value">0</div>
+              <div class="stat-label">Words</div>
+            </div>
+            <div class="stat-item">
+              <div id="stat-time" class="stat-value">0m</div>
+              <div class="stat-label">Session</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="collect-panel" class="panel hidden">
+          <p class="collect-info">Hold up an ASL letter and click Record to capture samples. Collect at least 5 samples per letter, then click Train.</p>
+          <div class="collect-controls">
+            <select id="letter-select"></select>
+            <button id="btn-record" onclick="recordSample()">Record</button>
+          </div>
+          <div id="collect-progress" class="collect-progress"></div>
+          <button id="btn-train" class="btn-train" onclick="trainModel()" disabled>Train Model</button>
+        </div>
+
+        <div id="practice-panel" class="panel hidden">
+          <div class="practice-header">
+            <div class="practice-target-area">
+              <div class="practice-instruction">SIGN THIS LETTER</div>
+              <div id="practice-target" class="practice-target-letter">A</div>
+            </div>
+            <div id="practice-result" class="practice-result"></div>
+          </div>
+          <div id="practice-quality" class="practice-quality"></div>
+          <div class="practice-stats-row">
+            <span id="practice-score-display">0 / 0 correct</span>
+            <span id="practice-streak-display">Streak: 0</span>
+          </div>
+          <div id="practice-letter-grid" class="practice-letter-grid"></div>
+          <div class="practice-controls">
+            <button class="practice-btn" onclick="startDrill('sequential')">A-Z Drill</button>
+            <button class="practice-btn" onclick="startDrill('random')">Random</button>
+            <button class="practice-btn" onclick="startDrill('weak')">Weak Letters</button>
+            <button class="practice-btn" onclick="resetPracticeStats()">Reset</button>
+          </div>
+        </div>
+
+        <div id="learn-panel" class="panel hidden">
+          <div id="learn-letter-grid" class="learn-letter-grid"></div>
+          <div class="learn-display">
+            <div class="learn-visuals">
+              <div class="learn-hand-container">
+                <div class="learn-visual-label">Model View</div>
+                <canvas id="learn-hand-canvas" width="220" height="280"></canvas>
+                <div class="finger-legend">
+                  <span class="leg thumb">Thumb</span>
+                  <span class="leg index">Index</span>
+                  <span class="leg middle">Middle</span>
+                  <span class="leg ring">Ring</span>
+                  <span class="leg pinky">Pinky</span>
+                </div>
+              </div>
+              <div class="learn-photo-container">
+                <div class="learn-visual-label">Reference Photo</div>
+                <img id="learn-ref-photo" class="learn-ref-photo" src="dataset/asl_alphabet_test/A_test.jpg" alt="ASL A" />
+              </div>
+            </div>
+            <div class="learn-info">
+              <div id="learn-letter-title" class="learn-letter-title">A</div>
+              <div id="learn-description" class="learn-description">Select a letter to learn how to sign it.</div>
+              <div id="learn-mnemonic" class="learn-mnemonic"></div>
+              <div class="learn-controls">
+                <button id="btn-prev-letter" class="learn-nav-btn" onclick="learnPrevLetter()">&#8592; Prev</button>
+                <button id="btn-lesson-mode" class="learn-lesson-btn" onclick="toggleLessonMode()">Start Lesson</button>
+                <button id="btn-next-letter" class="learn-nav-btn" onclick="learnNextLetter()">Next &#8594;</button>
+              </div>
+              <button class="btn-practice-this" onclick="practiceThisLetter()">&#9654; Practice This Letter</button>
+              <div id="learn-progress" class="learn-progress-text">Letter 1 of 26  &middot;  Seen: 0/26</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>ENEB408B Capstone Design Lab II | Nishanth S. | University of Maryland | Spring 2026</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

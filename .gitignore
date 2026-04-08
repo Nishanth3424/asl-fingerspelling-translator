@@ -1,0 +1,25 @@
+# Training dataset — 4.8 GB, not needed for web app
+dataset/asl_alphabet_train/
+landmarks.npz
+
+# Training scripts
+train_*.py
+kaggle_train.py
+train_bulletproof_v2.py
+train_kaggle_lstm.py
+train_real.py
+ANTIGRAVITY_KAGGLE_PROMPT.md
+training_v2_log.txt
+confusion_matrix.csv
+
+# Docker
+Dockerfile
+docker-compose.yml
+
+# Partially downloaded Wikimedia SVGs (using dataset photos instead)
+asl-images/
+
+# Misc
+*.npz
+__pycache__/
+*.pyc
