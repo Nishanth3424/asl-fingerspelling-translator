@@ -63,6 +63,18 @@ let lastCommittedLetter = '';
 let cooldownCounter = 0;
 let translatedText = '';
 let currentMode = 'recognize';
+let detectionSpeed = 'careful';
+
+function setDetectionSpeed(speed) {
+  detectionSpeed = speed;
+  ['careful', 'normal'].forEach(s => {
+    const btn = document.getElementById('speed-' + s);
+    if (btn) btn.classList.toggle('active', s === speed);
+  });
+  const indicator = document.getElementById('speed-indicator');
+  if (indicator) indicator.textContent = speed === 'careful' ? 'Careful' : 'Normal';
+  predictionBuffer = [];
+}
 
 // Word Builder state
 let currentWordLetters = '';   // letters being built for the current word
@@ -338,8 +350,9 @@ function getMotionAmount(landmarks) {
 }
 
 function getAdaptiveParams(entropy) {
-  // Balanced hold times: responsive enough for sentences, stable enough to avoid jitter.
-  // Low entropy (confident) = faster commit. High entropy = slower, more careful.
+  if (detectionSpeed === 'careful') {
+    return { window: 30, hold: 24, confThresh: 0.80 };
+  }
   if (entropy < 0.3) return { window: 12, hold: 8, confThresh: 0.55 };
   if (entropy < 0.6) return { window: 16, hold: 12, confThresh: 0.65 };
   return { window: 22, hold: 16, confThresh: 0.75 };
@@ -421,7 +434,7 @@ function onResults(results) {
 
     if (cooldownCounter > 0) cooldownCounter--;
 
-    if (model && (currentMode === 'recognize' || currentMode === 'practice')) {
+    if (model && (currentMode === 'recognize' || currentMode === 'practice' || currentMode === 'learn')) {
       const base = normalizeLandmarks(landmarks);
       const rawFeatures = useEnhanced ? computeEnhancedFeatures(base) : base;
       const features = applyScaler(rawFeatures);
@@ -448,22 +461,47 @@ function onResults(results) {
       updateConfidenceDisplay(smoothed.confidence, entropy);
       trackConfusion(smoothed.label);
 
+      // Commit progress bar for word builder
+      if (currentMode === 'recognize') {
+        const cpBar = document.getElementById('commit-progress-bar');
+        const cpLabel = document.getElementById('commit-progress-label');
+        if (cpBar) {
+          if (smoothed.confidence >= smoothed.confThresh && cooldownCounter === 0) {
+            const progress = Math.min(1, smoothed.count / smoothed.holdNeeded);
+            cpBar.style.width = (progress * 100) + '%';
+            cpBar.style.background = progress >= 1
+              ? 'var(--success)'
+              : 'linear-gradient(90deg, var(--teal), var(--teal-light))';
+            if (cpLabel) cpLabel.textContent = progress >= 0.3 ? smoothed.label : '';
+          } else {
+            cpBar.style.width = cooldownCounter > 0 ? '100%' : '0%';
+            cpBar.style.background = cooldownCounter > 0
+              ? 'rgba(245,158,11,0.4)' : '';
+            if (cpLabel) cpLabel.textContent = cooldownCounter > 0 ? 'Cooldown' : '';
+          }
+        }
+      }
+
       if (smoothed.confidence >= smoothed.confThresh) {
         letterEl.textContent = smoothed.label;
 
         if (currentMode === 'practice') {
           handlePracticeDetection(smoothed.label, smoothed.confidence);
+        } else if (currentMode === 'learn') {
+          handleLearnDetection(smoothed.label, smoothed.confidence);
         } else if (smoothed.count >= smoothed.holdNeeded && cooldownCounter === 0) {
-          // Add letter to word builder buffer
           currentWordLetters += smoothed.label;
           sessionLetterCount++;
           updateSessionStats();
           updateWordBuilderUI();
           lastCommittedLetter = smoothed.label;
-          cooldownCounter = COMMIT_COOLDOWN;
+          cooldownCounter = detectionSpeed === 'careful' ? 55 : COMMIT_COOLDOWN;
           letterEl.classList.add('flash');
           setTimeout(() => letterEl.classList.remove('flash'), 200);
         }
+      } else if (currentMode === 'learn') {
+        // Still update learn display even at low confidence
+        handleLearnDetection(smoothed.label, smoothed.confidence);
       }
 
       latencyEl.textContent = `Latency: ${(performance.now() - t0).toFixed(1)}ms`;
@@ -496,6 +534,19 @@ function onResults(results) {
 
     letterEl.textContent = '-';
     updateConfidenceDisplay(0, 1);
+    // Reset commit progress when hand absent
+    const cpBar = document.getElementById('commit-progress-bar');
+    const cpLabel = document.getElementById('commit-progress-label');
+    if (cpBar) { cpBar.style.width = '0%'; }
+    if (cpLabel) { cpLabel.textContent = ''; }
+    if (currentMode === 'learn') {
+      learnCorrectFrames = 0;
+      // Cancel any pending lesson advance — hand must be present to advance
+      if (learnLessonTimer) { clearTimeout(learnLessonTimer); learnLessonTimer = null; }
+      clearLearnMatchDisplay();
+      const detectedEl = document.getElementById('learn-cam-letter');
+      if (detectedEl) detectedEl.textContent = '—';
+    }
   }
 }
 
@@ -643,14 +694,25 @@ async function loadPretrainedModel() {
 
 function switchMode(mode) {
   currentMode = mode;
-  document.getElementById('tab-recognize').classList.toggle('active', mode === 'recognize');
-  document.getElementById('tab-collect').classList.toggle('active', mode === 'collect');
-  document.getElementById('tab-practice').classList.toggle('active', mode === 'practice');
-  document.getElementById('tab-learn').classList.toggle('active', mode === 'learn');
-  document.getElementById('recognize-panel').classList.toggle('hidden', mode !== 'recognize');
-  document.getElementById('collect-panel').classList.toggle('hidden', mode !== 'collect');
-  document.getElementById('practice-panel').classList.toggle('hidden', mode !== 'practice');
-  document.getElementById('learn-panel').classList.toggle('hidden', mode !== 'learn');
+
+  // Nav buttons
+  ['recognize','practice','learn','collect'].forEach(function(m) {
+    var btn = document.getElementById('tab-' + m);
+    if (btn) btn.classList.toggle('active', m === mode);
+  });
+
+  // Page panels (right column)
+  ['recognize','practice','learn','collect'].forEach(function(m) {
+    var panel = document.getElementById(m + '-panel');
+    if (panel) panel.classList.toggle('hidden', m !== mode);
+  });
+
+  // Aux panels below video (left column)
+  ['recognize','practice','learn'].forEach(function(m) {
+    var aux = document.getElementById('aux-' + m);
+    if (aux) aux.classList.toggle('hidden', m !== mode);
+  });
+
   if (mode === 'practice') {
     initPracticeGrid();
     nextPracticeTarget();
@@ -658,6 +720,11 @@ function switchMode(mode) {
   if (mode === 'learn') {
     initLearnGrid();
     selectLearnLetter(learnCurrentLetter);
+    learnCorrectFrames = 0;
+    clearLearnMatchDisplay();
+    switchLearnMode(currentLearnSubMode);
+    updateLearnStatsUI();
+    updateLearnRing();
   }
 }
 
@@ -957,6 +1024,40 @@ let learnAnimFrame = null;
 let learnCurrentPose = null;
 let learnTargetPose = null;
 let learnAnimProgress = 0;
+let currentLearnSubMode = 'browse';
+let learnStartTime = Date.now();
+
+// Quiz state
+let quizActive = false;
+let quizType = 'sign';
+let quizCurrentLetter = '';
+let quizScore = { correct: 0, total: 0, streak: 0, bestStreak: 0 };
+let quizTimer = null;
+let quizTimeLeft = 30;
+let quizSpeedLetters = [];
+let quizSpeedIdx = 0;
+
+// Flashcard state
+let fcDeck = [];
+let fcIndex = 0;
+let fcFlipped = false;
+let fcCurrentFilter = 'all';
+
+// Progress persisted in localStorage
+let learnProgress = {};
+function loadLearnProgress() {
+  try {
+    const saved = localStorage.getItem('asl_learn_progress');
+    if (saved) learnProgress = JSON.parse(saved);
+  } catch(e) {}
+  LABELS.forEach(l => {
+    if (!learnProgress[l]) learnProgress[l] = { level: 'new', attempts: 0, correct: 0 };
+  });
+}
+function saveLearnProgress() {
+  try { localStorage.setItem('asl_learn_progress', JSON.stringify(learnProgress)); } catch(e) {}
+}
+loadLearnProgress();
 
 const LEARN_HAND_CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,4],
@@ -997,6 +1098,24 @@ const ASL_POSES = {
   'Y': [[110,250],[78,215],[60,205],[46,195],[36,185],[92,188],[90,168],[90,158],[92,152],[112,185],[110,165],[110,155],[112,148],[130,188],[128,168],[128,158],[130,152],[148,186],[147,160],[146,132],[145,108]],
   'Z': [[110,250],[78,215],[65,200],[58,188],[55,175],[90,185],[86,148],[84,115],[82,85],[112,192],[112,175],[112,168],[114,162],[130,194],[130,175],[130,168],[130,162],[148,196],[148,177],[148,170],[148,164]],
 };
+
+const ASL_REFERENCE_URLS = {};
+LABELS.forEach(l => {
+  ASL_REFERENCE_URLS[l] = 'https://commons.wikimedia.org/wiki/Special:FilePath/Sign_language_' + l + '.svg';
+});
+
+function setLearnRefImage(imgId, letter) {
+  const img = document.getElementById(imgId);
+  if (!img) return;
+  const url = ASL_REFERENCE_URLS[letter];
+  if (url) {
+    img.src = url;
+    img.alt = 'ASL sign for letter ' + letter;
+    img.style.display = '';
+    img.onerror = function() { this.style.opacity = '0.3'; };
+    img.onload = function() { this.style.opacity = '1'; };
+  }
+}
 
 const ASL_DESCRIPTIONS = {
   'A': 'Make a fist. Thumb rests beside the index finger, pointing up.',
@@ -1058,6 +1177,118 @@ const LEARN_MNEMONICS = {
 
 const learnViewedLetters = new Set();
 
+const ASL_STEPS = {
+  'A': ['Make a fist with all fingers curled in', 'Rest your thumb alongside the index finger', 'Thumb should point upward', 'Keep wrist straight, palm facing forward'],
+  'B': ['Extend all four fingers straight up', 'Keep fingers pressed together', 'Fold thumb across the palm', 'Face palm outward'],
+  'C': ['Curve all fingers together', 'Curve the thumb to match', 'Form a C-shape as if holding a cup', 'Fingers and thumb should not touch'],
+  'D': ['Point index finger straight up', 'Touch thumb tip to middle finger tip', 'Ring and pinky also touch thumb', 'Keep the index clearly extended'],
+  'E': ['Curl all four fingers down toward palm', 'Tuck thumb underneath the fingers', 'Fingertips rest against the palm', 'Hand forms a claw-like shape'],
+  'F': ['Touch index finger tip to thumb tip', 'Form a small circle with index and thumb', 'Extend middle, ring, and pinky straight up', 'Spread the three raised fingers slightly'],
+  'G': ['Point index finger sideways to the left', 'Extend thumb parallel to index finger', 'Other fingers curl into the palm', 'Hand is oriented sideways, not up'],
+  'H': ['Extend index and middle fingers sideways', 'Point them to the left, held together', 'Thumb rests below the fingers', 'Other fingers curl into the palm'],
+  'I': ['Make a fist with fingers curled', 'Extend only the pinky finger up', 'Thumb wraps over other fingers', 'Pinky should be straight and vertical'],
+  'J': ['Start with an I hand shape (pinky up)', 'Trace a J-curve in the air with pinky', 'Scoop downward then curve back up', 'This is a motion-based letter'],
+  'K': ['Extend index and middle fingers up in a V', 'Place thumb pointing up between them', 'Thumb tip touches middle finger', 'Ring and pinky curl into palm'],
+  'L': ['Extend index finger straight up', 'Extend thumb straight out to the side', 'Form an L-shape with finger and thumb', 'Other three fingers curl into palm'],
+  'M': ['Fold index, middle, and ring fingers over thumb', 'Thumb is tucked underneath all three', 'Pinky sits beside ring finger', 'Three fingers drape over the thumb'],
+  'N': ['Fold index and middle fingers over thumb', 'Thumb is tucked under these two fingers', 'Ring and pinky curl beside them', 'Two fingers drape over the thumb'],
+  'O': ['Curve all fingers forward', 'Touch fingertips to thumb tip', 'Form a round O shape', 'All five digits meet at their tips'],
+  'P': ['Start like K (index+middle up, thumb between)', 'Rotate hand so fingers point downward', 'Index points toward the floor', 'Wrist bends to angle the hand down'],
+  'Q': ['Start like G (index+thumb pointing sideways)', 'Rotate hand so fingers point downward', 'Index and thumb point at the ground', 'Other fingers remain curled in'],
+  'R': ['Cross your index over middle finger', 'Like crossing fingers for luck', 'Other fingers curl into palm', 'Thumb wraps over ring finger'],
+  'S': ['Make a tight fist', 'Wrap thumb over all four fingers', 'Thumb rests across the front of fingers', 'Different from A where thumb is beside'],
+  'T': ['Make a fist', 'Poke thumb up between index and middle', 'Thumb tip peeks out between the two', 'Other fingers stay curled tight'],
+  'U': ['Extend index and middle fingers up', 'Hold them pressed together', 'Other fingers curl into palm', 'Thumb wraps over ring finger'],
+  'V': ['Extend index and middle fingers up', 'Spread them apart into a V shape', 'Like a peace sign', 'Other fingers curl in, thumb over them'],
+  'W': ['Extend index, middle, and ring fingers up', 'Spread all three apart', 'Pinky curls in, thumb touches pinky', 'Three fingers form a W shape'],
+  'X': ['Extend index finger and hook it', 'Bend it at the middle joint', 'Like a hook or beckoning gesture', 'Other fingers stay in a fist'],
+  'Y': ['Extend thumb straight out', 'Extend pinky straight out', 'Curl middle three fingers into palm', 'Like the hang loose sign'],
+  'Z': ['Extend index finger up', 'Draw a Z shape in the air', 'Move left, diagonal down, then right', 'This is a motion-based letter'],
+};
+
+const DIFFICULTY_MAP = {
+  'A':'beginner','B':'beginner','C':'beginner','D':'intermediate','E':'intermediate',
+  'F':'intermediate','G':'intermediate','H':'intermediate','I':'beginner','J':'advanced',
+  'K':'intermediate','L':'beginner','M':'advanced','N':'advanced','O':'beginner',
+  'P':'advanced','Q':'advanced','R':'intermediate','S':'beginner','T':'advanced',
+  'U':'intermediate','V':'beginner','W':'beginner','X':'intermediate','Y':'beginner','Z':'advanced'
+};
+
+const CONFUSABLE_MAP = {
+  'A':['S','T'],'S':['A','T'],'T':['A','S'],
+  'G':['P','H'],'P':['G','Q'],'Q':['P','G'],
+  'H':['G','U'],'M':['N'],'N':['M'],
+  'D':['F','X'],'F':['D'],'U':['V','H'],'V':['U','K'],
+  'I':['J','Y'],'J':['I'],'K':['V'],'X':['D'],
+  'Y':['I'],
+};
+
+function updateLetterMastery(letter, wasCorrect) {
+  const p = learnProgress[letter];
+  p.attempts++;
+  if (wasCorrect) p.correct++;
+  const rate = p.attempts > 0 ? p.correct / p.attempts : 0;
+  if (p.attempts >= 5 && rate >= 0.8) p.level = 'mastered';
+  else if (p.attempts >= 2 && rate >= 0.5) p.level = 'practiced';
+  else if (p.attempts >= 1) p.level = 'seen';
+  saveLearnProgress();
+  updateLearnStatsUI();
+  updateLearnRing();
+}
+
+function updateLearnStatsUI() {
+  let mastered = 0, totalAttempts = 0, totalCorrect = 0;
+  LABELS.forEach(l => {
+    const p = learnProgress[l];
+    if (p.level === 'mastered') mastered++;
+    totalAttempts += p.attempts;
+    totalCorrect += p.correct;
+  });
+  const accEl = document.getElementById('ls-accuracy');
+  const mastEl = document.getElementById('ls-mastered');
+  const streakEl = document.getElementById('ls-streak');
+  const timeEl = document.getElementById('ls-time');
+  if (mastEl) mastEl.innerHTML = mastered + '<span class="learn-stat-unit">/26</span>';
+  if (accEl) accEl.textContent = totalAttempts > 0 ? Math.round(totalCorrect / totalAttempts * 100) + '%' : '—';
+  if (streakEl) streakEl.textContent = quizScore.bestStreak;
+  if (timeEl) timeEl.textContent = Math.floor((Date.now() - learnStartTime) / 60000) + 'm';
+}
+
+function updateLearnRing() {
+  let mastered = 0;
+  LABELS.forEach(l => { if (learnProgress[l].level === 'mastered') mastered++; });
+  const pct = Math.round(mastered / 26 * 100);
+  const circumference = 213.6;
+  const offset = circumference - (circumference * pct / 100);
+  const ringEl = document.getElementById('learn-ring-fill');
+  const pctEl = document.getElementById('learn-ring-pct');
+  if (ringEl) ringEl.style.strokeDashoffset = offset;
+  if (pctEl) pctEl.textContent = pct + '%';
+}
+
+function resetLearnProgress() {
+  if (!confirm('Reset all learning progress?')) return;
+  LABELS.forEach(l => { learnProgress[l] = { level: 'new', attempts: 0, correct: 0 }; });
+  quizScore = { correct: 0, total: 0, streak: 0, bestStreak: 0 };
+  saveLearnProgress();
+  initLearnGrid();
+  updateLearnStatsUI();
+  updateLearnRing();
+}
+
+function switchLearnMode(mode) {
+  currentLearnSubMode = mode;
+  ['browse','lesson','quiz','flashcard'].forEach(m => {
+    const tab = document.getElementById('ltab-' + m);
+    const view = document.getElementById('learn-view-' + m);
+    if (tab) tab.classList.toggle('active', m === mode);
+    if (view) view.style.display = (m === mode) ? '' : 'none';
+  });
+  if (mode === 'lesson') initLessonView();
+  if (mode === 'quiz') initQuizView();
+  if (mode === 'flashcard') initFlashcardView();
+}
+
 function practiceThisLetter() {
   const letter = learnCurrentLetter;
   switchMode('practice');
@@ -1078,11 +1309,17 @@ function initLearnGrid() {
   grid.innerHTML = '';
   LABELS.forEach(l => {
     const cell = document.createElement('div');
-    cell.className = 'learn-grid-cell' + (l === learnCurrentLetter ? ' active' : '');
+    const p = learnProgress[l];
+    let cls = 'learn-grid-cell';
+    if (l === learnCurrentLetter) cls += ' active';
+    if (p && p.level !== 'new') cls += ' mastery-' + p.level;
+    cell.className = cls;
     cell.textContent = l;
     cell.onclick = () => selectLearnLetter(l);
     grid.appendChild(cell);
   });
+  updateLearnRing();
+  updateLearnStatsUI();
 }
 
 function selectLearnLetter(letter) {
@@ -1091,32 +1328,92 @@ function selectLearnLetter(letter) {
   learnTargetPose = ASL_POSES[letter];
   learnCurrentPose = learnCurrentPose || ASL_POSES[prev];
   learnAnimProgress = 0;
-  document.querySelectorAll('.learn-grid-cell').forEach((cell, i) => {
-    cell.classList.toggle('active', LABELS[i] === letter);
-  });
   learnViewedLetters.add(letter);
-  // Update grid cell styles for viewed letters
+  if (learnProgress[letter].level === 'new') {
+    learnProgress[letter].level = 'seen';
+    saveLearnProgress();
+  }
+
+  // Update grid
   document.querySelectorAll('.learn-grid-cell').forEach((cell, i) => {
-    cell.classList.toggle('viewed', learnViewedLetters.has(LABELS[i]));
+    const l = LABELS[i];
+    const p = learnProgress[l];
+    let cls = 'learn-grid-cell';
+    if (l === letter) cls += ' active';
+    if (p && p.level !== 'new') cls += ' mastery-' + p.level;
+    cell.className = cls;
   });
+
+  // Update browse view
   const titleEl = document.getElementById('learn-letter-title');
-  const descEl = document.getElementById('learn-description');
   const mnemonicEl = document.getElementById('learn-mnemonic');
   const progEl = document.getElementById('learn-progress');
-  const photoEl = document.getElementById('learn-ref-photo');
+  const diffEl = document.getElementById('learn-diff-badge');
+  const mastEl = document.getElementById('learn-mastery-badge');
+  const stepsEl = document.getElementById('learn-step-list');
+  const similarEl = document.getElementById('learn-similar');
+  const tryitEl = document.getElementById('learn-tryit-msg');
+
   if (titleEl) titleEl.textContent = letter;
-  if (descEl) descEl.textContent = ASL_DESCRIPTIONS[letter] || '';
   if (mnemonicEl) mnemonicEl.textContent = LEARN_MNEMONICS[letter] || '';
-  if (progEl) progEl.textContent = 'Letter ' + (LABELS.indexOf(letter) + 1) + ' of 26  \u00b7  Seen: ' + learnViewedLetters.size + '/26';
-  if (photoEl) {
-    photoEl.classList.add('photo-fade');
-    setTimeout(() => {
-      photoEl.src = 'dataset/asl_alphabet_test/' + letter + '_test.jpg';
-      photoEl.alt = 'ASL ' + letter;
-      photoEl.classList.remove('photo-fade');
-    }, 150);
+
+  // Difficulty badge
+  if (diffEl) {
+    const diff = DIFFICULTY_MAP[letter] || 'beginner';
+    diffEl.textContent = diff.charAt(0).toUpperCase() + diff.slice(1);
+    diffEl.className = 'learn-badge diff' + (diff !== 'beginner' ? ' ' + diff : '');
   }
-  animateLearnHand();
+
+  // Mastery badge
+  if (mastEl) {
+    const p = learnProgress[letter];
+    const lvl = p ? p.level : 'new';
+    mastEl.textContent = lvl.charAt(0).toUpperCase() + lvl.slice(1);
+    mastEl.className = 'learn-badge mast' + (lvl !== 'new' ? ' ' + lvl : '');
+  }
+
+  // Step-by-step instructions
+  if (stepsEl) {
+    stepsEl.innerHTML = '';
+    const steps = ASL_STEPS[letter] || [ASL_DESCRIPTIONS[letter] || ''];
+    steps.forEach(s => {
+      const li = document.createElement('li');
+      li.textContent = s;
+      stepsEl.appendChild(li);
+    });
+  }
+
+  // Similar / confusable letters
+  if (similarEl) {
+    const confusables = CONFUSABLE_MAP[letter];
+    if (confusables && confusables.length > 0) {
+      similarEl.innerHTML = '<span class="learn-section-label">Watch Out</span> Often confused with: ' +
+        confusables.map(c => '<span class="sim-tag">' + c + '</span>').join(' ');
+    } else {
+      similarEl.innerHTML = '';
+    }
+  }
+
+  // Progress text
+  if (progEl) {
+    let seen = 0;
+    LABELS.forEach(l => { if (learnProgress[l].level !== 'new') seen++; });
+    progEl.textContent = 'Letter ' + (LABELS.indexOf(letter) + 1) + ' of 26  \u00b7  Seen: ' + seen + '/26';
+  }
+
+  // Reset try-it section
+  if (tryitEl) {
+    tryitEl.textContent = 'Show your hand to the camera and sign this letter';
+    tryitEl.className = 'learn-tryit-msg';
+  }
+  const holdBar = document.getElementById('learn-hold-bar-browse');
+  if (holdBar) holdBar.style.width = '0%';
+  const holdPct = document.getElementById('learn-hold-pct');
+  if (holdPct) holdPct.textContent = '0%';
+
+  learnCorrectFrames = 0;
+  setLearnRefImage('learn-ref-img', letter);
+  updateLearnRing();
 }
 
 function animateLearnHand() {
@@ -1265,27 +1562,497 @@ function learnPrevLetter() {
   selectLearnLetter(LABELS[(idx + 25) % 26]);
 }
 
+// === LESSON MODE ===
+function initLessonView() {
+  const letter = learnCurrentLetter;
+  const targetEl = document.getElementById('lesson-target-letter');
+  const descEl = document.getElementById('lesson-description');
+  const stepsEl = document.getElementById('lesson-steps');
+  if (targetEl) targetEl.textContent = letter;
+  if (descEl) descEl.textContent = ASL_DESCRIPTIONS[letter] || '';
+  if (stepsEl) {
+    const steps = ASL_STEPS[letter] || [];
+    stepsEl.innerHTML = steps.length > 0 ? '<ol>' + steps.map(s => '<li>' + s + '</li>').join('') + '</ol>' : '';
+  }
+  drawLearnHandOnCanvas('lesson-hand-canvas', letter);
+  updateLessonProgress();
+}
+
+function updateLessonProgress() {
+  const idx = learnLessonIndex;
+  const labelEl = document.getElementById('lesson-step-label');
+  const barEl = document.getElementById('lesson-bar-fill');
+  if (labelEl) labelEl.textContent = 'Letter ' + (idx + 1) + ' of 26';
+  if (barEl) barEl.style.width = ((idx / 26) * 100) + '%';
+}
+
 function toggleLessonMode() {
   learnLessonActive = !learnLessonActive;
-  const btn = document.getElementById('btn-lesson-mode');
+  const btn = document.getElementById('btn-lesson-toggle');
   if (learnLessonActive) {
-    btn.textContent = 'Stop Lesson';
-    btn.classList.add('active');
+    btn.textContent = '\u25A0 Stop Lesson';
+    btn.classList.add('stop');
     learnLessonIndex = LABELS.indexOf(learnCurrentLetter);
+    learnCorrectFrames = 0;
     runLessonStep();
   } else {
-    btn.textContent = 'Start Lesson';
-    btn.classList.remove('active');
+    btn.textContent = '\u25B6 Start Lesson';
+    btn.classList.remove('stop');
     if (learnLessonTimer) clearTimeout(learnLessonTimer);
+    learnCorrectFrames = 0;
+    clearLearnMatchDisplay();
+    const fb = document.getElementById('lesson-feedback');
+    if (fb) { fb.textContent = 'Lesson paused'; fb.className = 'lesson-feedback'; }
   }
 }
 
 function runLessonStep() {
   if (!learnLessonActive) return;
-  selectLearnLetter(LABELS[learnLessonIndex % 26]);
-  learnLessonIndex++;
-  learnLessonTimer = setTimeout(runLessonStep, 3000);
+  if (learnLessonIndex >= 26) {
+    learnLessonActive = false;
+    const btn = document.getElementById('btn-lesson-toggle');
+    if (btn) { btn.textContent = '\u25B6 Start Lesson'; btn.classList.remove('stop'); }
+    const fb = document.getElementById('lesson-feedback');
+    if (fb) { fb.textContent = '\u2728 Congratulations! You completed the alphabet!'; fb.className = 'lesson-feedback correct'; }
+    return;
+  }
+  const letter = LABELS[learnLessonIndex % 26];
+  selectLearnLetter(letter);
+  const targetEl = document.getElementById('lesson-target-letter');
+  const descEl = document.getElementById('lesson-description');
+  const stepsEl = document.getElementById('lesson-steps');
+  if (targetEl) targetEl.textContent = letter;
+  if (descEl) descEl.textContent = ASL_DESCRIPTIONS[letter] || '';
+  if (stepsEl) {
+    const steps = ASL_STEPS[letter] || [];
+    stepsEl.innerHTML = steps.length > 0 ? '<ol>' + steps.map(s => '<li>' + s + '</li>').join('') + '</ol>' : '';
+  }
+  drawLearnHandOnCanvas('lesson-hand-canvas', letter);
+  updateLessonProgress();
+  learnCorrectFrames = 0;
+  const fb = document.getElementById('lesson-feedback');
+  if (fb) { fb.textContent = 'Sign the letter ' + letter + ' to continue'; fb.className = 'lesson-feedback'; }
+  const hb = document.getElementById('lesson-hold-bar');
+  if (hb) hb.style.width = '0%';
 }
+
+function lessonSkip() {
+  if (!learnLessonActive) {
+    learnLessonActive = true;
+    const btn = document.getElementById('btn-lesson-toggle');
+    if (btn) { btn.textContent = '\u25A0 Stop Lesson'; btn.classList.add('stop'); }
+    learnLessonIndex = LABELS.indexOf(learnCurrentLetter);
+  }
+  learnLessonIndex++;
+  runLessonStep();
+}
+
+function lessonRestart() {
+  learnLessonIndex = 0;
+  learnLessonActive = true;
+  const btn = document.getElementById('btn-lesson-toggle');
+  if (btn) { btn.textContent = '\u25A0 Stop Lesson'; btn.classList.add('stop'); }
+  runLessonStep();
+}
+
+function drawLearnHandOnCanvas(canvasId, letter) {
+  const idMap = {
+    'lesson-hand-canvas': 'lesson-ref-img',
+    'quiz-hand-canvas': 'quiz-ref-img',
+    'fc-hand-canvas': 'fc-ref-img',
+    'learn-hand-canvas': 'learn-ref-img'
+  };
+  setLearnRefImage(idMap[canvasId] || canvasId, letter);
+}
+
+// === QUIZ MODE ===
+function initQuizView() {
+  const promptEl = document.getElementById('quiz-prompt');
+  if (promptEl) promptEl.textContent = 'Choose a quiz type above to begin!';
+  const optEl = document.getElementById('quiz-options');
+  if (optEl) optEl.innerHTML = '';
+  const fbEl = document.getElementById('quiz-feedback');
+  if (fbEl) { fbEl.textContent = ''; fbEl.className = 'quiz-feedback'; }
+  const resEl = document.getElementById('quiz-result');
+  if (resEl) resEl.style.display = 'none';
+}
+
+function startQuiz(type) {
+  quizType = type;
+  quizActive = true;
+  quizScore = { correct: 0, total: 0, streak: 0, bestStreak: quizScore.bestStreak || 0 };
+  if (quizTimer) { clearInterval(quizTimer); quizTimer = null; }
+
+  ['sign','identify','speed'].forEach(t => {
+    const el = document.getElementById('qtype-' + t);
+    if (el) el.classList.toggle('active', t === type);
+  });
+
+  const resEl = document.getElementById('quiz-result');
+  if (resEl) resEl.style.display = 'none';
+  const timerWrap = document.getElementById('quiz-timer-wrap');
+
+  if (type === 'speed') {
+    quizTimeLeft = 30;
+    quizSpeedLetters = LABELS.slice().sort(() => Math.random() - 0.5);
+    quizSpeedIdx = 0;
+    if (timerWrap) timerWrap.style.display = '';
+    quizTimer = setInterval(quizTimerTick, 1000);
+    updateQuizTimerUI();
+  } else {
+    if (timerWrap) timerWrap.style.display = 'none';
+  }
+
+  updateQuizScoreUI();
+  quizNext();
+}
+
+function quizNext() {
+  if (!quizActive) return;
+  const promptEl = document.getElementById('quiz-prompt');
+  const optEl = document.getElementById('quiz-options');
+  const fbEl = document.getElementById('quiz-feedback');
+  const quizImgEl = document.getElementById('quiz-ref-img');
+  const letterBig = document.getElementById('quiz-letter-big');
+
+  if (fbEl) { fbEl.textContent = ''; fbEl.className = 'quiz-feedback'; }
+  if (optEl) optEl.innerHTML = '';
+
+  if (quizType === 'sign' || quizType === 'speed') {
+    if (quizType === 'speed') {
+      if (quizSpeedIdx >= quizSpeedLetters.length) quizSpeedLetters = LABELS.slice().sort(() => Math.random() - 0.5);
+      quizCurrentLetter = quizSpeedLetters[quizSpeedIdx % quizSpeedLetters.length];
+      quizSpeedIdx++;
+    } else {
+      quizCurrentLetter = LABELS[Math.floor(Math.random() * 26)];
+    }
+    if (promptEl) promptEl.textContent = 'Sign this letter:';
+    if (letterBig) { letterBig.textContent = quizCurrentLetter; letterBig.style.display = ''; }
+    if (quizImgEl) quizImgEl.style.display = 'none';
+    learnCorrectFrames = 0;
+  } else if (quizType === 'identify') {
+    quizCurrentLetter = LABELS[Math.floor(Math.random() * 26)];
+    if (promptEl) promptEl.textContent = 'What letter is this?';
+    if (letterBig) letterBig.style.display = 'none';
+    if (quizImgEl) {
+      quizImgEl.style.display = '';
+      setLearnRefImage('quiz-ref-img', quizCurrentLetter);
+    }
+    const options = generateQuizOptions(quizCurrentLetter, 4);
+    if (optEl) {
+      options.forEach(letter => {
+        const btn = document.createElement('button');
+        btn.className = 'quiz-opt-btn';
+        btn.textContent = letter;
+        btn.onclick = () => quizCheckIdentify(letter, btn);
+        optEl.appendChild(btn);
+      });
+    }
+  }
+}
+
+function generateQuizOptions(correct, count) {
+  const opts = new Set([correct]);
+  const confusables = CONFUSABLE_MAP[correct] || [];
+  confusables.forEach(c => { if (opts.size < count) opts.add(c); });
+  while (opts.size < count) opts.add(LABELS[Math.floor(Math.random() * 26)]);
+  return Array.from(opts).sort(() => Math.random() - 0.5);
+}
+
+function quizCheckIdentify(letter, btnEl) {
+  const optBtns = document.querySelectorAll('.quiz-opt-btn');
+  optBtns.forEach(b => { b.disabled = true; });
+
+  const correct = letter === quizCurrentLetter;
+  quizScore.total++;
+  if (correct) {
+    quizScore.correct++;
+    quizScore.streak++;
+    if (quizScore.streak > quizScore.bestStreak) quizScore.bestStreak = quizScore.streak;
+    btnEl.classList.add('correct');
+    updateLetterMastery(quizCurrentLetter, true);
+    showQuizFeedback(true, quizCurrentLetter);
+  } else {
+    quizScore.streak = 0;
+    btnEl.classList.add('wrong');
+    optBtns.forEach(b => { if (b.textContent === quizCurrentLetter) b.classList.add('correct'); });
+    updateLetterMastery(quizCurrentLetter, false);
+    showQuizFeedback(false, quizCurrentLetter);
+  }
+  updateQuizScoreUI();
+  setTimeout(() => { if (quizActive) quizNext(); }, 1500);
+}
+
+function quizCheckSign() {
+  quizScore.total++;
+  quizScore.correct++;
+  quizScore.streak++;
+  if (quizScore.streak > quizScore.bestStreak) quizScore.bestStreak = quizScore.streak;
+  updateLetterMastery(quizCurrentLetter, true);
+  showQuizFeedback(true, quizCurrentLetter);
+  updateQuizScoreUI();
+  setTimeout(() => { if (quizActive) quizNext(); }, 1000);
+}
+
+function showQuizFeedback(correct, letter) {
+  const fbEl = document.getElementById('quiz-feedback');
+  if (!fbEl) return;
+  if (correct) {
+    fbEl.textContent = '\u2713 Correct! That\'s ' + letter;
+    fbEl.className = 'quiz-feedback correct';
+  } else {
+    fbEl.textContent = '\u2717 The answer was ' + letter;
+    fbEl.className = 'quiz-feedback wrong';
+  }
+}
+
+function updateQuizScoreUI() {
+  const scoreEl = document.getElementById('quiz-score');
+  const streakEl = document.getElementById('quiz-streak');
+  if (scoreEl) scoreEl.textContent = quizScore.correct + ' / ' + quizScore.total;
+  if (streakEl) streakEl.textContent = '\uD83D\uDD25 ' + quizScore.streak;
+}
+
+function quizTimerTick() {
+  quizTimeLeft--;
+  updateQuizTimerUI();
+  if (quizTimeLeft <= 0) {
+    clearInterval(quizTimer);
+    quizTimer = null;
+    quizActive = false;
+    showQuizResult();
+  }
+}
+
+function updateQuizTimerUI() {
+  const fillEl = document.getElementById('quiz-timer-fill');
+  const textEl = document.getElementById('quiz-timer-text');
+  if (fillEl) fillEl.style.width = ((quizTimeLeft / 30) * 100) + '%';
+  if (textEl) textEl.textContent = quizTimeLeft + 's';
+}
+
+function showQuizResult() {
+  const resEl = document.getElementById('quiz-result');
+  if (!resEl) return;
+  const rate = quizScore.total > 0 ? Math.round(quizScore.correct / quizScore.total * 100) : 0;
+  resEl.innerHTML = '<h3>Quiz Complete!</h3>' +
+    '<p class="qr-stat">Score: <strong>' + quizScore.correct + ' / ' + quizScore.total + '</strong> (' + rate + '%)</p>' +
+    '<p class="qr-stat">Best Streak: <strong>' + quizScore.bestStreak + '</strong></p>' +
+    '<button onclick="startQuiz(\'' + quizType + '\')">Play Again</button>';
+  resEl.style.display = '';
+}
+
+// === FLASHCARD MODE ===
+function initFlashcardView() {
+  fcBuildDeck();
+  fcIndex = 0;
+  fcFlipped = false;
+  fcRender();
+}
+
+function fcBuildDeck() {
+  if (fcCurrentFilter === 'all') {
+    fcDeck = LABELS.slice();
+  } else if (fcCurrentFilter === 'new') {
+    fcDeck = LABELS.filter(l => learnProgress[l].level === 'new' || learnProgress[l].level === 'seen');
+  } else {
+    fcDeck = LABELS.filter(l => learnProgress[l].level !== 'mastered');
+  }
+  if (fcDeck.length === 0) fcDeck = LABELS.slice();
+  fcDeck.sort(() => Math.random() - 0.5);
+}
+
+function fcSetFilter(filter) {
+  fcCurrentFilter = filter;
+  ['all','new','weak'].forEach(f => {
+    const el = document.getElementById('fc-f-' + f);
+    if (el) el.classList.toggle('active', f === filter);
+  });
+  fcBuildDeck();
+  fcIndex = 0;
+  fcFlipped = false;
+  fcRender();
+}
+
+function fcFlip() {
+  fcFlipped = !fcFlipped;
+  const card = document.getElementById('fc-card');
+  if (card) card.classList.toggle('flipped', fcFlipped);
+  if (fcFlipped) {
+    const letter = fcDeck[fcIndex % fcDeck.length];
+    setLearnRefImage('fc-ref-img', letter);
+    const descEl = document.getElementById('fc-back-desc');
+    if (descEl) descEl.textContent = ASL_DESCRIPTIONS[letter] || '';
+  }
+}
+
+function fcNext() {
+  fcIndex = (fcIndex + 1) % fcDeck.length;
+  fcFlipped = false;
+  const card = document.getElementById('fc-card');
+  if (card) card.classList.remove('flipped');
+  fcRender();
+}
+
+function fcPrev() {
+  fcIndex = (fcIndex - 1 + fcDeck.length) % fcDeck.length;
+  fcFlipped = false;
+  const card = document.getElementById('fc-card');
+  if (card) card.classList.remove('flipped');
+  fcRender();
+}
+
+function fcKnow() {
+  const letter = fcDeck[fcIndex % fcDeck.length];
+  updateLetterMastery(letter, true);
+  initLearnGrid();
+  fcNext();
+}
+
+function fcDunno() {
+  const letter = fcDeck[fcIndex % fcDeck.length];
+  updateLetterMastery(letter, false);
+  initLearnGrid();
+  fcNext();
+}
+
+function fcRender() {
+  if (fcDeck.length === 0) return;
+  const letter = fcDeck[fcIndex % fcDeck.length];
+  const frontEl = document.getElementById('fc-front-letter');
+  const counterEl = document.getElementById('fc-counter');
+  if (frontEl) frontEl.textContent = letter;
+  if (counterEl) counterEl.textContent = (fcIndex + 1) + ' / ' + fcDeck.length;
+}
+
+// === LEARN MODE DETECTION ===
+let learnCorrectFrames = 0;
+const LEARN_HOLD_REQUIRED = 22;
+
+function clearLearnMatchDisplay() {
+  const matchEl = document.getElementById('learn-match-display');
+  if (matchEl) { matchEl.className = 'learn-match-display'; matchEl.textContent = ''; }
+  ['learn-hold-bar', 'learn-hold-bar-browse', 'lesson-hold-bar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.width = '0%';
+  });
+  const pctEl = document.getElementById('learn-hold-pct');
+  if (pctEl) pctEl.textContent = '0%';
+}
+
+function handleLearnDetection(detectedLetter, confidence) {
+  const matchEl = document.getElementById('learn-match-display');
+  const detectedEl = document.getElementById('learn-cam-letter');
+
+  if (detectedEl) detectedEl.textContent = detectedLetter;
+
+  // Determine target based on sub-mode
+  let targetLetter = learnCurrentLetter;
+  if (currentLearnSubMode === 'quiz' && quizActive && (quizType === 'sign' || quizType === 'speed')) {
+    targetLetter = quizCurrentLetter;
+  }
+
+  const isMatch = detectedLetter === targetLetter && confidence >= 0.60;
+
+  if (isMatch) {
+    learnCorrectFrames = Math.min(learnCorrectFrames + 1, LEARN_HOLD_REQUIRED);
+  } else {
+    learnCorrectFrames = Math.max(learnCorrectFrames - 1, 0);
+  }
+
+  const progress = learnCorrectFrames / LEARN_HOLD_REQUIRED;
+  const pct = Math.round(progress * 100);
+
+  // Update all hold bars
+  ['learn-hold-bar', 'learn-hold-bar-browse', 'lesson-hold-bar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.width = pct + '%';
+  });
+  const pctEl = document.getElementById('learn-hold-pct');
+  if (pctEl) pctEl.textContent = pct + '%';
+
+  // Update match display
+  if (matchEl) {
+    if (learnCorrectFrames >= LEARN_HOLD_REQUIRED) {
+      matchEl.className = 'learn-match-display match-correct';
+      matchEl.textContent = '\u2713 Correct!';
+    } else if (isMatch) {
+      matchEl.className = 'learn-match-display match-holding';
+      matchEl.textContent = 'Hold\u2026';
+    } else if (detectedLetter && detectedLetter !== '-') {
+      matchEl.className = 'learn-match-display match-wrong';
+      matchEl.textContent = 'Keep trying';
+    } else {
+      matchEl.className = 'learn-match-display';
+      matchEl.textContent = '';
+    }
+  }
+
+  // Update browse try-it message
+  if (currentLearnSubMode === 'browse') {
+    const tryitEl = document.getElementById('learn-tryit-msg');
+    if (tryitEl) {
+      if (learnCorrectFrames >= LEARN_HOLD_REQUIRED) {
+        tryitEl.textContent = '\u2713 Great job! You signed ' + targetLetter + ' correctly!';
+        tryitEl.className = 'learn-tryit-msg success';
+      } else if (isMatch) {
+        tryitEl.textContent = 'Hold steady\u2026 ' + pct + '%';
+        tryitEl.className = 'learn-tryit-msg holding';
+      } else if (detectedLetter && detectedLetter !== '-') {
+        tryitEl.textContent = 'Detected: ' + detectedLetter + ' \u2014 Try signing ' + targetLetter;
+        tryitEl.className = 'learn-tryit-msg';
+      }
+    }
+  }
+
+  // Update lesson feedback
+  if (currentLearnSubMode === 'lesson' && learnLessonActive) {
+    const fb = document.getElementById('lesson-feedback');
+    if (fb) {
+      if (learnCorrectFrames >= LEARN_HOLD_REQUIRED) {
+        fb.textContent = '\u2713 Correct!';
+        fb.className = 'lesson-feedback correct';
+      } else if (isMatch) {
+        fb.textContent = 'Hold steady\u2026';
+        fb.className = 'lesson-feedback holding';
+      } else {
+        fb.textContent = 'Sign the letter ' + targetLetter;
+        fb.className = 'lesson-feedback';
+      }
+    }
+  }
+
+  // On successful hold
+  if (learnCorrectFrames >= LEARN_HOLD_REQUIRED) {
+    learnCorrectFrames = 0;
+    updateLetterMastery(targetLetter, true);
+    initLearnGrid();
+
+    if (currentLearnSubMode === 'lesson' && learnLessonActive) {
+      learnLessonIndex++;
+      setTimeout(runLessonStep, 800);
+    } else if (currentLearnSubMode === 'quiz' && quizActive && (quizType === 'sign' || quizType === 'speed')) {
+      quizCheckSign();
+    } else if (currentLearnSubMode === 'browse') {
+      setTimeout(() => {
+        const tryitEl = document.getElementById('learn-tryit-msg');
+        if (tryitEl) {
+          tryitEl.textContent = 'Show your hand to the camera and sign this letter';
+          tryitEl.className = 'learn-tryit-msg';
+        }
+      }, 2000);
+    }
+  }
+}
+
+// Keyboard shortcuts for learn mode
+document.addEventListener('keydown', function(e) {
+  if (currentMode !== 'learn') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); learnNextLetter(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); learnPrevLetter(); }
+  else if (e.key === ' ' && currentLearnSubMode === 'flashcard') { e.preventDefault(); fcFlip(); }
+});
 
 async function init() {
   const hands = new Hands({

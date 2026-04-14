@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>ASL Fingerspelling Translator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
@@ -11,169 +14,560 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
 </head>
 <body>
-  <header>
-    <div class="header-row">
-      <div class="header-left">
-        <h1>ASL Fingerspelling Translator</h1>
-        <p class="subtitle">Real-time sign language recognition in your browser</p>
+
+<!-- ═══════════════════════════════════════════════
+     SPLASH SCREEN
+════════════════════════════════════════════════ -->
+<div id="splash-screen" class="splash">
+  <div class="splash-content">
+    <div class="splash-brand">
+      <div class="splash-icon-wrap">
+        <svg class="splash-hand-icon" viewBox="0 0 64 64" fill="none"><path d="M32 8c-2.2 0-4 1.8-4 4v18h-2V16c0-2.2-1.8-4-4-4s-4 1.8-4 4v18h-2V20c0-2.2-1.8-4-4-4s-4 1.8-4 4v16c0 10 8.1 18 18 18s18-8 18-18V20c0-2.2-1.8-4-4-4s-4 1.8-4 4v10h-2V12c0-2.2-1.8-4-4-4z" fill="currentColor"/></svg>
       </div>
-      <div class="header-right">
-        <span id="model-chip" class="model-chip loading">Loading Model...</span>
-        <span class="badge">ENEB408B Capstone | Nishanth S.</span>
+      <h1 class="splash-title">ASL Fingerspelling Translator</h1>
+      <p class="splash-subtitle">Real-time A–Z sign language recognition in your browser</p>
+    </div>
+    <div class="splash-loader-wrap">
+      <div class="splash-bar-track"><div class="splash-bar-fill"></div></div>
+      <p class="splash-status-text">Initializing AI model…</p>
+    </div>
+    <p class="splash-meta">ENEB408B Capstone Design Lab II &nbsp;·&nbsp; Nishanth S. &nbsp;·&nbsp; University of Maryland &nbsp;·&nbsp; Spring 2026</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     NAVBAR — page navigation lives here
+════════════════════════════════════════════════ -->
+<header class="navbar">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <div class="nav-icon-wrap">
+        <svg class="nav-hand-icon" viewBox="0 0 64 64" fill="none"><path d="M32 8c-2.2 0-4 1.8-4 4v18h-2V16c0-2.2-1.8-4-4-4s-4 1.8-4 4v18h-2V20c0-2.2-1.8-4-4-4s-4 1.8-4 4v16c0 10 8.1 18 18 18s18-8 18-18V20c0-2.2-1.8-4-4-4s-4 1.8-4 4v10h-2V12c0-2.2-1.8-4-4-4z" fill="currentColor"/></svg>
+      </div>
+      <div class="nav-titles">
+        <span class="nav-title">ASL Fingerspelling Translator</span>
+        <span class="nav-sub">A–Z Learn &amp; Recognize</span>
       </div>
     </div>
-  </header>
 
-  <main>
-    <div class="video-section">
-      <div class="video-container">
-        <video id="webcam" playsinline></video>
-        <canvas id="overlay"></canvas>
-        <div id="hand-status" class="hand-status">No hand detected</div>
+    <!-- Page navigation -->
+    <nav class="nav-pages">
+      <button id="tab-recognize" class="nav-page-btn active" onclick="switchMode('recognize')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+        Recognize
+      </button>
+      <button id="tab-practice" class="nav-page-btn" onclick="switchMode('practice')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Practice
+      </button>
+      <button id="tab-learn" class="nav-page-btn" onclick="switchMode('learn')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0z"/></svg>
+        Learn A–Z
+      </button>
+      <!-- Hidden tab kept for JS compatibility -->
+      <button id="tab-collect" style="display:none"></button>
+    </nav>
+
+    <div class="nav-right">
+      <span id="model-chip" class="model-chip loading">Loading Model…</span>
+      <span class="nav-badge">ENEB408B &nbsp;·&nbsp; Nishanth S.</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════
+     APP SHELL — video always left, pages on right
+════════════════════════════════════════════════ -->
+<div class="app-shell">
+
+  <!-- ── LEFT: Persistent video column ── -->
+  <div class="video-column">
+    <div class="video-container" id="video-container">
+      <video id="webcam" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="hand-status" class="hand-status">No hand detected</div>
+      <button class="how-to-trigger" onclick="toggleHowTo()" title="How to use">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+      </button>
+    </div>
+
+    <!-- How-To Panel (shown via button above) -->
+    <div id="how-to-panel" class="how-to-panel hidden">
+      <div class="how-to-header">
+        <span class="how-to-title">How to Use</span>
+        <button class="how-to-close" onclick="toggleHowTo()">✕</button>
+      </div>
+      <ol class="how-to-steps">
+        <li><strong>Allow camera</strong> when prompted.</li>
+        <li><strong>Hold your hand</strong> clearly in frame.</li>
+        <li>Sign an <strong>ASL letter</strong> — AI detects it live.</li>
+        <li><strong>Hold steady ~1s</strong> to commit the letter.</li>
+        <li><strong>Drop your hand</strong> to confirm the word.</li>
+        <li>Use <strong>suggestions</strong> that appear below.</li>
+        <li>Try <strong>Practice</strong> or <strong>Learn A–Z</strong> in the nav.</li>
+      </ol>
+    </div>
+
+    <!-- ── Below-video area: changes per page ── -->
+
+    <!-- RECOGNIZE aux: model status + perf -->
+    <div class="video-aux" id="aux-recognize">
+      <div id="model-status" class="status-msg loading">Loading model…</div>
+      <div id="calibration-prompt" class="calibration-prompt" style="display:none"></div>
+      <div class="perf-row">
+        <span class="perf-chip" id="fps-display">FPS: —</span>
+        <span class="perf-chip" id="latency-display">Latency: —</span>
       </div>
     </div>
 
-    <div class="output-section">
-      <div class="prediction-card">
-        <div class="prediction-label">Detected Letter</div>
-        <div id="predicted-letter" class="predicted-letter">-</div>
-        <div id="confidence" class="confidence">Confidence: --</div>
-        <div class="confidence-bar-container">
-          <div id="confidence-bar" class="confidence-bar"></div>
+    <!-- PRACTICE aux: live detected letter big display -->
+    <div class="video-aux hidden" id="aux-practice">
+      <div class="aux-label">Camera Sees</div>
+      <div class="aux-live-letter" id="practice-live-letter">—</div>
+      <div class="aux-live-conf" id="practice-live-conf"></div>
+    </div>
+
+    <!-- LEARN aux: live detection + hold bar + match -->
+    <div class="video-aux hidden" id="aux-learn">
+      <div class="aux-label">Camera Sees</div>
+      <div class="aux-live-letter" id="learn-cam-letter">—</div>
+      <div id="learn-match-display" class="learn-match-display"></div>
+      <div class="learn-hold-wrap">
+        <div class="learn-hold-track">
+          <div id="learn-hold-bar" class="learn-hold-bar"></div>
         </div>
-        <div id="confidence-level" class="confidence-level">--</div>
+        <span class="learn-hold-label">Hold to confirm</span>
+      </div>
+    </div>
+  </div>
+  <!-- end video-column -->
+
+  <!-- ── RIGHT: Page content ── -->
+  <div class="page-column">
+
+    <!-- ════════════════════════════════
+         PAGE: RECOGNIZE
+    ════════════════════════════════ -->
+    <div id="recognize-panel" class="page-content">
+      <!-- Prediction Card -->
+      <div class="prediction-card">
+        <div class="pred-top">
+          <div class="pred-letter-section">
+            <div class="pred-label">Detected Letter</div>
+            <div class="letter-frame">
+              <div id="predicted-letter" class="predicted-letter">—</div>
+            </div>
+          </div>
+          <div class="pred-stats-section">
+            <div class="session-stat">
+              <div id="stat-letters" class="stat-value">0</div>
+              <div class="stat-label">Letters</div>
+            </div>
+            <div class="session-stat">
+              <div id="stat-words" class="stat-value">0</div>
+              <div class="stat-label">Words</div>
+            </div>
+            <div class="session-stat">
+              <div id="stat-time" class="stat-value">0m</div>
+              <div class="stat-label">Session</div>
+            </div>
+          </div>
+        </div>
+        <div class="conf-section">
+          <div class="conf-header">
+            <span id="confidence" class="conf-label">Confidence</span>
+            <span id="confidence-level" class="confidence-level">—</span>
+          </div>
+          <div class="conf-bar-track">
+            <div id="confidence-bar" class="confidence-bar"></div>
+          </div>
+        </div>
       </div>
 
+      <!-- Word Builder Card -->
       <div class="text-card">
         <div class="word-builder-section">
           <div class="text-label">Word Being Built</div>
           <div id="current-word-display" class="current-word-display">
-            <span id="current-word-letters">-</span>
+            <span id="current-word-letters">—</span>
           </div>
           <div id="suggestions-panel" class="suggestions-panel"></div>
         </div>
-
         <div class="sentence-section">
           <div class="text-label">Sentence</div>
           <div id="translated-text" class="translated-text">
             <span id="text-content"></span><span class="cursor">|</span>
           </div>
         </div>
-
-        <div class="text-hint">Drop hand to confirm word &amp; space &bull; Click a suggestion to use it</div>
+        <p class="text-hint">Drop hand to confirm word &nbsp;·&nbsp; Tap suggestion to use it</p>
+        <div class="speed-control">
+          <div class="speed-header">
+            <span class="text-label">Detection Speed</span>
+            <span class="speed-indicator" id="speed-indicator">Careful</span>
+          </div>
+          <div class="speed-btns">
+            <button class="speed-btn active" onclick="setDetectionSpeed('careful')" id="speed-careful">Careful</button>
+            <button class="speed-btn" onclick="setDetectionSpeed('normal')" id="speed-normal">Normal</button>
+          </div>
+          <div class="commit-progress-wrap">
+            <div class="commit-progress-track"><div id="commit-progress-bar" class="commit-progress-bar"></div></div>
+            <span class="commit-progress-label" id="commit-progress-label"></span>
+          </div>
+        </div>
         <div class="text-controls">
-          <button id="btn-clear" onclick="clearText()">Clear All</button>
-          <button id="btn-space" onclick="addSpace()">Space</button>
-          <button id="btn-delete" onclick="deleteLast()">Delete</button>
-          <button id="btn-clearword" onclick="clearCurrentWord()">Clear Word</button>
-        </div>
-      </div>
-
-      <div class="mode-card">
-        <div class="mode-tabs">
-          <button id="tab-recognize" class="tab active" onclick="switchMode('recognize')">Recognize</button>
-          <button id="tab-practice" class="tab" onclick="switchMode('practice')">Practice</button>
-          <button id="tab-learn" class="tab" onclick="switchMode('learn')">Learn</button>
-          <button id="tab-collect" class="tab" onclick="switchMode('collect')">Calibrate</button>
-        </div>
-
-        <div id="recognize-panel" class="panel">
-          <div id="model-status" class="status-msg">Loading model...</div>
-          <div id="calibration-prompt" class="calibration-prompt" style="display:none"></div>
-          <div class="stats">
-            <span id="fps-display">FPS: --</span>
-            <span id="latency-display">Latency: --</span>
-          </div>
-          <div class="session-stats">
-            <div class="stat-item">
-              <div id="stat-letters" class="stat-value">0</div>
-              <div class="stat-label">Letters</div>
-            </div>
-            <div class="stat-item">
-              <div id="stat-words" class="stat-value">0</div>
-              <div class="stat-label">Words</div>
-            </div>
-            <div class="stat-item">
-              <div id="stat-time" class="stat-value">0m</div>
-              <div class="stat-label">Session</div>
-            </div>
-          </div>
-        </div>
-
-        <div id="collect-panel" class="panel hidden">
-          <p class="collect-info">Hold up an ASL letter and click Record to capture samples. Collect at least 5 samples per letter, then click Train.</p>
-          <div class="collect-controls">
-            <select id="letter-select"></select>
-            <button id="btn-record" onclick="recordSample()">Record</button>
-          </div>
-          <div id="collect-progress" class="collect-progress"></div>
-          <button id="btn-train" class="btn-train" onclick="trainModel()" disabled>Train Model</button>
-        </div>
-
-        <div id="practice-panel" class="panel hidden">
-          <div class="practice-header">
-            <div class="practice-target-area">
-              <div class="practice-instruction">SIGN THIS LETTER</div>
-              <div id="practice-target" class="practice-target-letter">A</div>
-            </div>
-            <div id="practice-result" class="practice-result"></div>
-          </div>
-          <div id="practice-quality" class="practice-quality"></div>
-          <div class="practice-stats-row">
-            <span id="practice-score-display">0 / 0 correct</span>
-            <span id="practice-streak-display">Streak: 0</span>
-          </div>
-          <div id="practice-letter-grid" class="practice-letter-grid"></div>
-          <div class="practice-controls">
-            <button class="practice-btn" onclick="startDrill('sequential')">A-Z Drill</button>
-            <button class="practice-btn" onclick="startDrill('random')">Random</button>
-            <button class="practice-btn" onclick="startDrill('weak')">Weak Letters</button>
-            <button class="practice-btn" onclick="resetPracticeStats()">Reset</button>
-          </div>
-        </div>
-
-        <div id="learn-panel" class="panel hidden">
-          <div id="learn-letter-grid" class="learn-letter-grid"></div>
-          <div class="learn-display">
-            <div class="learn-visuals">
-              <div class="learn-hand-container">
-                <div class="learn-visual-label">Model View</div>
-                <canvas id="learn-hand-canvas" width="220" height="280"></canvas>
-                <div class="finger-legend">
-                  <span class="leg thumb">Thumb</span>
-                  <span class="leg index">Index</span>
-                  <span class="leg middle">Middle</span>
-                  <span class="leg ring">Ring</span>
-                  <span class="leg pinky">Pinky</span>
-                </div>
-              </div>
-              <div class="learn-photo-container">
-                <div class="learn-visual-label">Reference Photo</div>
-                <img id="learn-ref-photo" class="learn-ref-photo" src="dataset/asl_alphabet_test/A_test.jpg" alt="ASL A" />
-              </div>
-            </div>
-            <div class="learn-info">
-              <div id="learn-letter-title" class="learn-letter-title">A</div>
-              <div id="learn-description" class="learn-description">Select a letter to learn how to sign it.</div>
-              <div id="learn-mnemonic" class="learn-mnemonic"></div>
-              <div class="learn-controls">
-                <button id="btn-prev-letter" class="learn-nav-btn" onclick="learnPrevLetter()">&#8592; Prev</button>
-                <button id="btn-lesson-mode" class="learn-lesson-btn" onclick="toggleLessonMode()">Start Lesson</button>
-                <button id="btn-next-letter" class="learn-nav-btn" onclick="learnNextLetter()">Next &#8594;</button>
-              </div>
-              <button class="btn-practice-this" onclick="practiceThisLetter()">&#9654; Practice This Letter</button>
-              <div id="learn-progress" class="learn-progress-text">Letter 1 of 26  &middot;  Seen: 0/26</div>
-            </div>
-          </div>
+          <button class="ctrl-btn" onclick="clearText()">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 010-2h4a1 1 0 011-1h2a1 1 0 011 1h4a1 1 0 011 1zM4.118 4L4 4.059V13a1 1 0 001 1h6a1 1 0 001-1V4.059L11.882 4H4.118z" clip-rule="evenodd"/></svg>
+            Clear All
+          </button>
+          <button class="ctrl-btn" onclick="addSpace()">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 11a1 1 0 011-1h6a1 1 0 010 2H5a1 1 0 01-1-1z"/></svg>
+            Space
+          </button>
+          <button class="ctrl-btn" onclick="deleteLast()">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M13.683 1a2 2 0 011.456 3.369l-9 9A2 2 0 014.683 14H2.5a2 2 0 01-2-2V2.5a2 2 0 012-2h11.183zM5.83 5.146a.5.5 0 000 .708L7.975 8l-2.147 2.146a.5.5 0 00.707.708l2.147-2.147 2.146 2.147a.5.5 0 00.707-.708L9.39 8l2.146-2.146a.5.5 0 00-.707-.708L8.683 7.293 6.536 5.146a.5.5 0 00-.707 0z" clip-rule="evenodd"/></svg>
+            Delete
+          </button>
+          <button class="ctrl-btn" onclick="clearCurrentWord()">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 104.546 2.914.5.5 0 00-.908-.417A4 4 0 118 4v1L6 3l2-2v1z" clip-rule="evenodd"/></svg>
+            Clear Word
+          </button>
         </div>
       </div>
     </div>
-  </main>
+    <!-- end page-recognize -->
 
-  <footer>
-    <p>ENEB408B Capstone Design Lab II | Nishanth S. | University of Maryland | Spring 2026</p>
-  </footer>
+    <!-- ════════════════════════════════
+         PAGE: PRACTICE
+    ════════════════════════════════ -->
+    <div id="practice-panel" class="page-content hidden">
+      <div class="page-header">
+        <h2 class="page-title">Practice Mode</h2>
+        <p class="page-desc">Sign the letter shown. Hold it steady to score a point.</p>
+      </div>
 
-  <script src="app.js"></script>
+      <div class="practice-main-card">
+        <div class="practice-header">
+          <div class="practice-target-area">
+            <div class="practice-instruction">SIGN THIS LETTER</div>
+            <div id="practice-target" class="practice-target-letter">A</div>
+          </div>
+          <div id="practice-result" class="practice-result"></div>
+        </div>
+        <div id="practice-quality" class="practice-quality"></div>
+        <div class="practice-stats-row">
+          <span id="practice-score-display">0 / 0 correct</span>
+          <span id="practice-streak-display">Streak: 0</span>
+        </div>
+      </div>
+
+      <div class="practice-grid-card">
+        <div class="card-label">Letter Performance</div>
+        <div id="practice-letter-grid" class="practice-letter-grid"></div>
+      </div>
+
+      <div class="practice-drill-card">
+        <div class="card-label">Drill Mode</div>
+        <div class="practice-controls">
+          <button class="practice-btn" onclick="startDrill('sequential')">A–Z Drill</button>
+          <button class="practice-btn" onclick="startDrill('random')">Random</button>
+          <button class="practice-btn" onclick="startDrill('weak')">Weak Letters</button>
+          <button class="practice-btn reset-btn" onclick="resetPracticeStats()">Reset Stats</button>
+        </div>
+      </div>
+    </div>
+    <!-- end page-practice -->
+
+    <!-- ════════════════════════════════
+         PAGE: LEARN A–Z
+    ════════════════════════════════ -->
+    <div id="learn-panel" class="page-content hidden">
+
+      <!-- Header: title + progress ring + sub-mode tabs -->
+      <div class="learn-header-card">
+        <div class="learn-header-top">
+          <div>
+            <h2 class="page-title">Learn ASL A–Z</h2>
+            <p class="page-desc">Master the American Sign Language alphabet step by step</p>
+          </div>
+          <div class="learn-ring-wrap">
+            <svg class="learn-ring-svg" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="var(--surface2)" stroke-width="6"/>
+              <circle id="learn-ring-fill" cx="40" cy="40" r="34" fill="none" stroke="var(--teal-light)" stroke-width="6" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="213.6" transform="rotate(-90 40 40)"/>
+            </svg>
+            <span class="learn-ring-pct" id="learn-ring-pct">0%</span>
+          </div>
+        </div>
+        <div class="learn-mode-tabs">
+          <button class="learn-tab active" onclick="switchLearnMode('browse')" id="ltab-browse">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"/></svg>
+            Browse
+          </button>
+          <button class="learn-tab" onclick="switchLearnMode('lesson')" id="ltab-lesson">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3z"/></svg>
+            Guided Lesson
+          </button>
+          <button class="learn-tab" onclick="switchLearnMode('quiz')" id="ltab-quiz">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+            Quiz
+          </button>
+          <button class="learn-tab" onclick="switchLearnMode('flashcard')" id="ltab-flashcard">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/></svg>
+            Flashcards
+          </button>
+        </div>
+      </div>
+
+      <!-- Alphabet grid with mastery indicators -->
+      <div class="learn-grid-card">
+        <div class="learn-grid-top">
+          <span class="card-label">Alphabet</span>
+          <div class="learn-legend">
+            <span class="lg-item"><span class="lg-dot lg-new"></span>New</span>
+            <span class="lg-item"><span class="lg-dot lg-seen"></span>Seen</span>
+            <span class="lg-item"><span class="lg-dot lg-practiced"></span>Practiced</span>
+            <span class="lg-item"><span class="lg-dot lg-mastered"></span>Mastered</span>
+          </div>
+        </div>
+        <div id="learn-letter-grid" class="learn-letter-grid"></div>
+        <div id="learn-progress" class="learn-progress-text"></div>
+      </div>
+
+      <!-- ═══ BROWSE VIEW ═══ -->
+      <div id="learn-view-browse" class="learn-view">
+        <div class="learn-browse-row">
+          <div class="learn-visual-card">
+            <img id="learn-ref-img" class="learn-ref-img" alt="ASL hand sign reference" src="">
+          </div>
+          <div class="learn-detail-card">
+            <div class="learn-detail-top">
+              <div class="learn-letter-huge" id="learn-letter-title">A</div>
+              <div class="learn-badges">
+                <span class="learn-badge diff" id="learn-diff-badge">Beginner</span>
+                <span class="learn-badge mast" id="learn-mastery-badge">New</span>
+              </div>
+            </div>
+            <div class="learn-steps-box">
+              <div class="learn-section-label">How to Sign</div>
+              <ol class="learn-step-list" id="learn-step-list"></ol>
+            </div>
+            <div class="learn-mnemonic-box" id="learn-mnemonic"></div>
+            <div class="learn-similar-box" id="learn-similar"></div>
+            <div class="learn-tryit-box">
+              <div class="learn-section-label">Try It Now</div>
+              <div class="learn-tryit-msg" id="learn-tryit-msg">Show your hand to the camera and sign this letter</div>
+              <div class="learn-tryit-bar-wrap">
+                <div class="learn-tryit-bar-track"><div id="learn-hold-bar-browse" class="learn-tryit-bar-fill"></div></div>
+                <span class="learn-tryit-pct" id="learn-hold-pct">0%</span>
+              </div>
+            </div>
+            <div class="learn-detail-nav">
+              <button class="learn-nav-btn" onclick="learnPrevLetter()">&#8592; Prev</button>
+              <button class="learn-practice-btn" onclick="practiceThisLetter()">&#9654; Practice This Letter</button>
+              <button class="learn-nav-btn" onclick="learnNextLetter()">Next &#8594;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ LESSON VIEW ═══ -->
+      <div id="learn-view-lesson" class="learn-view" style="display:none">
+        <div class="lesson-card">
+          <div class="lesson-top-row">
+            <span class="lesson-step-label" id="lesson-step-label">Letter 1 of 26</span>
+            <div class="lesson-bar-track"><div class="lesson-bar-fill" id="lesson-bar-fill"></div></div>
+          </div>
+          <div class="lesson-body">
+            <div class="lesson-visual-col">
+              <div class="lesson-target-letter" id="lesson-target-letter">A</div>
+              <img id="lesson-ref-img" class="learn-ref-img lesson-ref-img" alt="ASL reference" src="">
+            </div>
+            <div class="lesson-info-col">
+              <div class="lesson-desc" id="lesson-description"></div>
+              <div class="lesson-steps" id="lesson-steps"></div>
+              <div class="lesson-feedback" id="lesson-feedback">Sign the letter shown to continue</div>
+              <div class="lesson-hold-wrap">
+                <div class="lesson-hold-track"><div id="lesson-hold-bar" class="lesson-hold-bar"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="lesson-controls">
+            <button class="lesson-btn" onclick="lessonRestart()">&#8634; Restart</button>
+            <button class="lesson-btn primary" onclick="toggleLessonMode()" id="btn-lesson-toggle">&#9654; Start Lesson</button>
+            <button class="lesson-btn" onclick="lessonSkip()">Skip &#8594;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ QUIZ VIEW ═══ -->
+      <div id="learn-view-quiz" class="learn-view" style="display:none">
+        <div class="quiz-card">
+          <div class="quiz-top-row">
+            <div class="quiz-type-tabs">
+              <button class="quiz-type-btn active" onclick="startQuiz('sign')" id="qtype-sign">Sign It</button>
+              <button class="quiz-type-btn" onclick="startQuiz('identify')" id="qtype-identify">Identify</button>
+              <button class="quiz-type-btn" onclick="startQuiz('speed')" id="qtype-speed">Speed Round</button>
+            </div>
+            <div class="quiz-score-area">
+              <span class="quiz-score" id="quiz-score">0 / 0</span>
+              <span class="quiz-streak" id="quiz-streak">&#128293; 0</span>
+            </div>
+          </div>
+          <div class="quiz-body" id="quiz-body">
+            <div class="quiz-prompt" id="quiz-prompt">Choose a quiz type above to begin!</div>
+            <img id="quiz-ref-img" class="learn-ref-img quiz-ref-img" alt="ASL reference" src="" style="display:none">
+            <div class="quiz-letter-big" id="quiz-letter-big" style="display:none"></div>
+            <div class="quiz-options" id="quiz-options"></div>
+            <div class="quiz-timer-wrap" id="quiz-timer-wrap" style="display:none">
+              <div class="quiz-timer-track"><div class="quiz-timer-fill" id="quiz-timer-fill"></div></div>
+              <span class="quiz-timer-text" id="quiz-timer-text">30s</span>
+            </div>
+          </div>
+          <div class="quiz-feedback" id="quiz-feedback"></div>
+          <div class="quiz-result" id="quiz-result" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- ═══ FLASHCARD VIEW ═══ -->
+      <div id="learn-view-flashcard" class="learn-view" style="display:none">
+        <div class="fc-card-wrap">
+          <div class="fc-top-row">
+            <span class="fc-counter" id="fc-counter">1 / 26</span>
+            <div class="fc-filter-tabs">
+              <button class="fc-filter-btn active" onclick="fcSetFilter('all')" id="fc-f-all">All</button>
+              <button class="fc-filter-btn" onclick="fcSetFilter('new')" id="fc-f-new">New Only</button>
+              <button class="fc-filter-btn" onclick="fcSetFilter('weak')" id="fc-f-weak">Need Practice</button>
+            </div>
+          </div>
+          <div class="fc-area">
+            <div class="fc-card" id="fc-card" onclick="fcFlip()">
+              <div class="fc-front" id="fc-front">
+                <div class="fc-front-letter" id="fc-front-letter">A</div>
+                <div class="fc-front-hint">Tap to reveal</div>
+              </div>
+              <div class="fc-back" id="fc-back">
+                <img id="fc-ref-img" class="learn-ref-img fc-ref-img" alt="ASL reference" src="">
+                <div class="fc-back-desc" id="fc-back-desc"></div>
+              </div>
+            </div>
+          </div>
+          <div class="fc-controls">
+            <button class="fc-btn" onclick="fcPrev()">&#8592;</button>
+            <button class="fc-btn fc-know" onclick="fcKnow()">&#10003; Know It</button>
+            <button class="fc-btn fc-dunno" onclick="fcDunno()">&#10007; Practice More</button>
+            <button class="fc-btn" onclick="fcNext()">&#8594;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats dashboard -->
+      <div class="learn-stats-card">
+        <div class="card-label">Your Progress</div>
+        <div class="learn-stats-row">
+          <div class="learn-stat-box">
+            <div class="learn-stat-val" id="ls-mastered">0<span class="learn-stat-unit">/26</span></div>
+            <div class="learn-stat-lbl">Mastered</div>
+          </div>
+          <div class="learn-stat-box">
+            <div class="learn-stat-val" id="ls-accuracy">—</div>
+            <div class="learn-stat-lbl">Accuracy</div>
+          </div>
+          <div class="learn-stat-box">
+            <div class="learn-stat-val" id="ls-streak">0</div>
+            <div class="learn-stat-lbl">Best Streak</div>
+          </div>
+          <div class="learn-stat-box">
+            <div class="learn-stat-val" id="ls-time">0m</div>
+            <div class="learn-stat-lbl">Time Learning</div>
+          </div>
+        </div>
+        <button class="learn-reset-btn" onclick="resetLearnProgress()">Reset All Progress</button>
+      </div>
+
+    </div>
+    <!-- end page-learn -->
+
+    <!-- HIDDEN collect panel for JS compatibility -->
+    <div id="collect-panel" style="display:none">
+      <select id="letter-select"></select>
+      <button id="btn-record">Record</button>
+      <div id="collect-progress"></div>
+      <button id="btn-train" disabled>Train Model</button>
+    </div>
+
+  </div>
+  <!-- end page-column -->
+
+</div>
+<!-- end app-shell -->
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-logo">ASL Fingerspelling Translator</span>
+    <span class="footer-sep">|</span>
+    <span>ENEB408B Capstone Design Lab II</span>
+    <span class="footer-sep">·</span>
+    <span>Nishanth S.</span>
+    <span class="footer-sep">·</span>
+    <span>University of Maryland</span>
+    <span class="footer-sep">·</span>
+    <span>Spring 2026</span>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+<script>
+// ── Splash screen: dismiss when model-status becomes ready ──
+(function() {
+  var splash = document.getElementById('splash-screen');
+  var statusEl = document.getElementById('model-status');
+  if (!splash || !statusEl) return;
+  var observer = new MutationObserver(function() {
+    if (statusEl.classList.contains('ready') || statusEl.classList.contains('error')) {
+      splash.classList.add('splash-fade');
+      setTimeout(function() { splash.style.display = 'none'; }, 900);
+      observer.disconnect();
+    }
+  });
+  observer.observe(statusEl, { attributes: true, attributeFilter: ['class'] });
+  // Fallback after 12s
+  setTimeout(function() {
+    if (splash.style.display !== 'none') {
+      splash.classList.add('splash-fade');
+      setTimeout(function() { splash.style.display = 'none'; }, 900);
+    }
+  }, 12000);
+})();
+
+// ── How-To panel toggle ──
+function toggleHowTo() {
+  document.getElementById('how-to-panel').classList.toggle('hidden');
+}
+
+// ── Mirror predicted-letter + confidence into Practice aux panel ──
+// (Learn aux is updated directly by handleLearnDetection in app.js)
+(function() {
+  var mainLetterEl   = document.getElementById('predicted-letter');
+  var practiceAuxEl  = document.getElementById('practice-live-letter');
+  var confEl         = document.getElementById('confidence');
+  var practiceConfEl = document.getElementById('practice-live-conf');
+  if (!mainLetterEl || !practiceAuxEl) return;
+
+  var letterObs = new MutationObserver(function() {
+    var txt = mainLetterEl.textContent;
+    var cls = mainLetterEl.className.replace('predicted-letter','').trim();
+    practiceAuxEl.textContent = txt;
+    practiceAuxEl.className   = 'aux-live-letter ' + cls;
+  });
+  letterObs.observe(mainLetterEl, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
+  if (confEl && practiceConfEl) {
+    var confObs = new MutationObserver(function() {
+      practiceConfEl.textContent = confEl.textContent;
+    });
+    confObs.observe(confEl, { childList: true, characterData: true, subtree: true });
+  }
+})();
+</script>
+
 </body>
 </html>
