@@ -428,11 +428,16 @@ function onResults(results) {
     currentLandmarks = landmarks;
 
     handAbsentFrames = 0;
+    numHandAbsentFrames = 0;
 
     drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: '#6366f180', lineWidth: 2 });
     drawLandmarks(ctx, landmarks, { color: '#a78bfa', lineWidth: 1, radius: 3 });
 
     if (cooldownCounter > 0) cooldownCounter--;
+
+    if (currentMode === 'numbers' && numModel) {
+      handleNumbersDetection(landmarks);
+    }
 
     if (model && (currentMode === 'recognize' || currentMode === 'practice' || currentMode === 'learn')) {
       const base = normalizeLandmarks(landmarks);
@@ -513,7 +518,11 @@ function onResults(results) {
     motionBuffer = [];
     canvasEl.closest('.video-container').classList.remove('hand-active');
 
-    if (currentMode !== 'practice' && handAbsentFrames === AUTO_SPACE_FRAMES && currentWordLetters.length > 0) {
+    if (currentMode === 'numbers') {
+      handleNumbersHandAbsent();
+    }
+
+    if (currentMode !== 'practice' && currentMode !== 'numbers' && handAbsentFrames === AUTO_SPACE_FRAMES && currentWordLetters.length > 0) {
       // Commit current word to sentence when hand is removed
       commitCurrentWord();
       lastCommittedLetter = '';
@@ -696,19 +705,19 @@ function switchMode(mode) {
   currentMode = mode;
 
   // Nav buttons
-  ['recognize','practice','learn','collect'].forEach(function(m) {
+  ['recognize','practice','learn','collect','numbers'].forEach(function(m) {
     var btn = document.getElementById('tab-' + m);
     if (btn) btn.classList.toggle('active', m === mode);
   });
 
   // Page panels (right column)
-  ['recognize','practice','learn','collect'].forEach(function(m) {
+  ['recognize','practice','learn','collect','numbers'].forEach(function(m) {
     var panel = document.getElementById(m + '-panel');
     if (panel) panel.classList.toggle('hidden', m !== mode);
   });
 
   // Aux panels below video (left column)
-  ['recognize','practice','learn'].forEach(function(m) {
+  ['recognize','practice','learn','numbers'].forEach(function(m) {
     var aux = document.getElementById('aux-' + m);
     if (aux) aux.classList.toggle('hidden', m !== mode);
   });
@@ -725,6 +734,11 @@ function switchMode(mode) {
     switchLearnMode(currentLearnSubMode);
     updateLearnStatsUI();
     updateLearnRing();
+  }
+  if (mode === 'numbers') {
+    numInitLearnGrid();
+    numUpdateStatsUI();
+    numUpdateRing();
   }
 }
 
@@ -2054,6 +2068,1133 @@ document.addEventListener('keydown', function(e) {
   else if (e.key === ' ' && currentLearnSubMode === 'flashcard') { e.preventDefault(); fcFlip(); }
 });
 
+
+
+// ═══════════════════════════════════════════════════════════════
+// NUMBERS MODE (0-9) — Separate model, parallel to A-Z
+// ═══════════════════════════════════════════════════════════════
+
+const NUM_LABELS = ['0','1','2','3','4','5','6','7','8','9','10'];
+let numModel = null;
+let numScalerMean = null;
+let numScalerStd = null;
+let numPredictionBuffer = [];
+let numCurrentDigits = '';
+let numCompletedText = '';
+let numCooldownCounter = 0;
+let numCorrectFrames = 0;
+let numSessionDigitCount = 0;
+let numSessionNumberCount = 0;
+let numCurrentSubMode = 'recognize';
+let numCurrentLearnSubMode = 'browse';
+let numLearnCurrent = '0';
+let numLessonActive = false;
+let numLessonIndex = 0;
+let numHandAbsentFrames = 0;
+
+// Numbers practice state
+let numPracticeTarget = '1';
+let numPracticeCorrectFrames = 0;
+let numPracticeScore = { correct: 0, total: 0, streak: 0, bestStreak: 0 };
+let numPracticeStats = {};
+let numPracticeDrillMode = 'sequential';
+let numPracticeDrillIndex = 0;
+let numPracticeShowingResult = false;
+
+// Numbers quiz state
+let numQuizActive = false;
+let numQuizType = 'sign';
+let numQuizCurrent = '';
+let numQuizScore = { correct: 0, total: 0, streak: 0, bestStreak: 0 };
+let numQuizTimer = null;
+let numQuizTimeLeft = 30;
+
+// Numbers flashcard state
+let numFcDeck = [];
+let numFcIndex = 0;
+let numFcFlipped = false;
+let numFcFilter = 'all';
+
+// Numbers learn progress
+let numLearnProgress = {};
+function numLoadProgress() {
+  try {
+    const saved = localStorage.getItem('asl_num_learn_progress');
+    if (saved) numLearnProgress = JSON.parse(saved);
+  } catch(e) {}
+  NUM_LABELS.forEach(d => {
+    if (!numLearnProgress[d]) numLearnProgress[d] = { level: 'new', attempts: 0, correct: 0 };
+  });
+}
+function numSaveProgress() {
+  try { localStorage.setItem('asl_num_learn_progress', JSON.stringify(numLearnProgress)); } catch(e) {}
+}
+numLoadProgress();
+NUM_LABELS.forEach(d => { numPracticeStats[d] = { correct: 0, total: 0 }; });
+
+// Numbers descriptions and instructions
+const NUM_DESCRIPTIONS = {
+  '0': 'Form an O-shape with all fingers curving to meet the thumb.',
+  '1': 'Index finger points up. Other fingers and thumb form a fist.',
+  '2': 'Index and middle fingers point up, spread apart (like V/peace sign).',
+  '3': 'Thumb, index, and middle fingers extended. Ring and pinky curled.',
+  '4': 'All four fingers extended up and spread apart. Thumb tucked across palm.',
+  '5': 'All five fingers extended up and spread apart.',
+  '6': 'Thumb and pinky touch. Index, middle, and ring extended.',
+  '7': 'Thumb and ring finger touch. Index, middle, and pinky extended.',
+  '8': 'Thumb and middle finger touch. Index, ring, and pinky extended.',
+  '9': 'Thumb and index finger touch. Middle, ring, and pinky extended.',
+  '10': 'Make a fist with thumb pointing straight up (thumbs up) and shake.',
+};
+
+const NUM_STEPS = {
+  '0': ['Curve all fingers toward the thumb', 'Touch fingertips to thumb tip', 'Form a round O/zero shape', 'Like making the letter O'],
+  '1': ['Make a fist with all fingers', 'Extend only the index finger up', 'Keep thumb curled around other fingers', 'Index points straight up'],
+  '2': ['Make a fist with all fingers', 'Extend index and middle fingers', 'Spread them apart in a V shape', 'Same as the letter V / peace sign'],
+  '3': ['Extend thumb outward', 'Extend index and middle fingers up', 'Curl ring and pinky into palm', 'Thumb, index, middle all spread'],
+  '4': ['Extend all four fingers straight up', 'Spread fingers apart', 'Tuck thumb across the palm', 'Same as the letter B but fingers spread'],
+  '5': ['Extend all five fingers', 'Spread all fingers wide apart', 'Thumb extends to the side', 'Open hand, palm facing forward'],
+  '6': ['Extend index, middle, and ring fingers up', 'Touch thumb tip to pinky tip', 'Three fingers stay up and spread', 'Looks like the letter W + thumb-pinky touch'],
+  '7': ['Extend index, middle, and pinky fingers up', 'Touch thumb tip to ring finger tip', 'Three fingers remain extended', 'Ring finger folds to meet thumb'],
+  '8': ['Extend index, ring, and pinky fingers up', 'Touch thumb tip to middle finger tip', 'Three fingers remain extended', 'Middle finger folds to meet thumb'],
+  '9': ['Extend middle, ring, and pinky fingers up', 'Touch thumb tip to index finger tip', 'Three fingers remain extended', 'Index folds to meet thumb, like OK sign'],
+  '10': ['Make a fist with all fingers curled in', 'Extend thumb straight upward', 'Shake or twist hand slightly', 'Like a thumbs-up gesture with a shake'],
+};
+
+const NUM_MNEMONICS = {
+  '0': 'Zero = O shape, like a zero/circle.',
+  '1': 'One = one finger up (index).',
+  '2': 'Two = peace sign / V shape.',
+  '3': 'Three = thumb + 2 fingers (like a 3-pronged fork).',
+  '4': 'Four = four fingers up, thumb hidden.',
+  '5': 'Five = full open hand, all fingers spread.',
+  '6': 'Six = W-hand + thumb meets pinky (6th finger equivalent).',
+  '7': 'Seven = thumb meets ring finger (4th finger = 7-4=3 up).',
+  '8': 'Eight = thumb meets middle finger.',
+  '9': 'Nine = thumb meets index (like OK sign).',
+  '10': 'Ten = thumbs up + shake (like saying "great!" = 10/10).',
+};
+
+const NUM_DIFFICULTY = {
+  '0':'beginner','1':'beginner','2':'beginner','3':'beginner','4':'beginner',
+  '5':'beginner','6':'intermediate','7':'intermediate','8':'intermediate','9':'intermediate',
+  '10':'intermediate'
+};
+
+const NUM_CONFUSABLE = {
+  '0':['O'],'1':['D'],'2':['V'],'3':['6'],'4':['B'],
+  '5':[],'6':['W','3'],'7':['8'],'8':['7'],'9':['F'],
+  '10':['A','S']
+};
+
+// Reference images for numbers — inline SVG data URIs (never break, no network needed)
+// Each SVG depicts the ASL hand shape for that number
+function _numSvg(paths, vb) {
+  return 'data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + (vb||'0 0 200 200') + '" width="200" height="200">' +
+    '<rect width="200" height="200" rx="16" fill="%231a2636"/>' +
+    '<g transform="translate(100,105)" fill="none" stroke="%2300A896" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">' +
+    paths + '</g></svg>'
+  );
+}
+// Palm = ellipse centered at 0,0. Fingers extend upward (neg y). Thumb extends left.
+// ASL 0: O-shape (thumb+index touching in circle, others curled)
+// ASL 1: Index up, others curled
+// ASL 2: Index+middle up (V shape)
+// ASL 3: Thumb+index+middle up
+// ASL 4: Four fingers up, thumb across palm
+// ASL 5: All five fingers spread
+// ASL 6: Thumb+pinky touching, middle three up
+// ASL 7: Thumb+ring touching, index+middle+pinky up
+// ASL 8: Thumb+middle touching, index+ring+pinky up
+// ASL 9: Thumb+index touching, middle+ring+pinky up
+// ASL 10: Thumbs up (fist + thumb pointing up)
+const NUM_REFERENCE_URLS = {
+  '0': _numSvg(
+    '<ellipse cx="0" cy="5" rx="30" ry="40" stroke-width="5"/>' +
+    '<ellipse cx="0" cy="-30" rx="14" ry="14" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">0</text>'
+  ),
+  '1': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="0" y1="-17" x2="0" y2="-70"/>' +
+    '<line x1="-10" y1="-10" x2="-25" y2="5"/><line x1="10" y1="-10" x2="25" y2="5"/><line x1="18" y1="-5" x2="30" y2="12"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">1</text>'
+  ),
+  '2': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-8" y1="-17" x2="-16" y2="-70"/><line x1="8" y1="-17" x2="16" y2="-70"/>' +
+    '<line x1="-18" y1="-5" x2="-30" y2="5"/><line x1="18" y1="-5" x2="30" y2="12"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">2</text>'
+  ),
+  '3': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-8" y1="-17" x2="-12" y2="-70"/><line x1="8" y1="-17" x2="12" y2="-70"/>' +
+    '<line x1="-30" y1="0" x2="-50" y2="-25"/>' +
+    '<line x1="18" y1="-5" x2="30" y2="12"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">3</text>'
+  ),
+  '4': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-14" y1="-17" x2="-20" y2="-70"/><line x1="-4" y1="-17" x2="-6" y2="-72"/>' +
+    '<line x1="6" y1="-17" x2="8" y2="-72"/><line x1="16" y1="-17" x2="22" y2="-70"/>' +
+    '<path d="M-28,5 Q-35,-5 -25,10" stroke-width="3"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">4</text>'
+  ),
+  '5': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-16" y1="-17" x2="-26" y2="-68"/><line x1="-6" y1="-17" x2="-8" y2="-72"/>' +
+    '<line x1="6" y1="-17" x2="8" y2="-72"/><line x1="16" y1="-17" x2="26" y2="-68"/>' +
+    '<line x1="-30" y1="0" x2="-52" y2="-20"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">5</text>'
+  ),
+  '6': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-8" y1="-17" x2="-12" y2="-70"/><line x1="0" y1="-17" x2="0" y2="-72"/>' +
+    '<line x1="8" y1="-17" x2="12" y2="-70"/>' +
+    '<path d="M-28,2 Q-42,-15 -30,20" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<line x1="20" y1="-8" x2="28" y2="15"/><path d="M28,15 Q20,25 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">6</text>'
+  ),
+  '7': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-12" y1="-17" x2="-18" y2="-70"/><line x1="-2" y1="-17" x2="-2" y2="-72"/>' +
+    '<line x1="20" y1="-10" x2="28" y2="-65"/>' +
+    '<path d="M-28,2 Q-42,-12 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<line x1="10" y1="-12" x2="14" y2="8"/><path d="M14,8 Q8,18 -26,14" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">7</text>'
+  ),
+  '8': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-14" y1="-17" x2="-20" y2="-70"/>' +
+    '<line x1="8" y1="-17" x2="12" y2="-70"/><line x1="20" y1="-10" x2="28" y2="-65"/>' +
+    '<path d="M-28,2 Q-42,-12 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<line x1="-2" y1="-14" x2="0" y2="5"/><path d="M0,5 Q-8,18 -26,14" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">8</text>'
+  ),
+  '9': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
+    '<line x1="-4" y1="-17" x2="-6" y2="-72"/><line x1="8" y1="-17" x2="12" y2="-70"/>' +
+    '<line x1="20" y1="-10" x2="28" y2="-65"/>' +
+    '<path d="M-28,2 Q-42,-15 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<line x1="-14" y1="-14" x2="-12" y2="5"/><path d="M-12,5 Q-18,18 -28,14" stroke="%234DD0E1" stroke-width="3"/>' +
+    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">9</text>'
+  ),
+  '10': _numSvg(
+    '<ellipse cx="0" cy="15" rx="28" ry="35" stroke-width="5"/>' +
+    '<line x1="-30" y1="0" x2="-30" y2="-55" stroke-width="5"/>' +
+    '<circle cx="-30" cy="-58" r="5" fill="%2300A896" stroke="%2300A896"/>' +
+    '<line x1="-10" y1="-10" x2="-22" y2="5"/><line x1="0" y1="-12" x2="-8" y2="5"/>' +
+    '<line x1="10" y1="-10" x2="10" y2="8"/><line x1="20" y1="-5" x2="25" y2="12"/>' +
+    '<path d="M-5,40 L5,40 M-5,36 L5,36" stroke="%234DD0E1" stroke-width="2"/>' +
+    '<text x="0" y="65" text-anchor="middle" fill="%238899AA" font-size="16" font-family="Calibri" stroke="none">10 (shake)</text>'
+  ),
+};
+
+function numSetRefImage(imgId, digit) {
+  const img = document.getElementById(imgId);
+  if (!img) return;
+  img.src = NUM_REFERENCE_URLS[digit] || '';
+  img.alt = 'ASL sign for number ' + digit;
+  img.style.display = '';
+  img.onerror = function() { this.style.opacity = '0.3'; };
+  img.onload = function() { this.style.opacity = '1'; };
+}
+
+// Load numbers model
+async function loadNumbersModel() {
+  try {
+    if (window.location.protocol === 'file:') return false;
+    console.log('[NUM] Loading numbers model...');
+    numModel = await tf.loadLayersModel('./model_numbers/model.json');
+    console.log('[NUM] Numbers model loaded. Input:', numModel.inputs[0].shape);
+
+    try {
+      const resp = await fetch('./model_numbers/scaler.json');
+      const data = await resp.json();
+      numScalerMean = data.mean;
+      numScalerStd = data.std;
+      console.log('[NUM] Numbers scaler loaded.');
+    } catch(e) {
+      numScalerMean = null; numScalerStd = null;
+    }
+    return true;
+  } catch(e) {
+    console.warn('[NUM] Numbers model load failed:', e);
+    return false;
+  }
+}
+
+function numApplyScaler(features) {
+  if (!numScalerMean || !numScalerStd) return features;
+  return features.map((v, i) => (v - numScalerMean[i]) / (numScalerStd[i] || 1));
+}
+
+// Numbers detection pipeline
+function handleNumbersDetection(landmarks) {
+  const base = normalizeLandmarks(landmarks);
+  const rawFeatures = computeEnhancedFeatures(base);
+  const features = numApplyScaler(rawFeatures);
+  const input = tf.tensor2d([features]);
+  const pred = numModel.predict(input);
+  const probs = pred.dataSync();
+  input.dispose(); pred.dispose();
+
+  let maxIdx = 0;
+  for (let i = 1; i < probs.length; i++) if (probs[i] > probs[maxIdx]) maxIdx = i;
+  const rawLabel = NUM_LABELS[maxIdx];
+  const rawConf = probs[maxIdx];
+
+  const entropy = computeEntropy(Array.from(probs));
+
+  // Smoothing
+  numPredictionBuffer.push({ label: rawLabel, conf: rawConf });
+  const params = getAdaptiveParams(entropy);
+  while (numPredictionBuffer.length > params.window) numPredictionBuffer.shift();
+
+  const votes = {};
+  const totalConf = {};
+  numPredictionBuffer.forEach(p => {
+    votes[p.label] = (votes[p.label] || 0) + 1;
+    totalConf[p.label] = (totalConf[p.label] || 0) + p.conf;
+  });
+  let bestLabel = '', bestCount = 0;
+  for (const [l, c] of Object.entries(votes))
+    if (c > bestCount) { bestCount = c; bestLabel = l; }
+  const avgConf = totalConf[bestLabel] / bestCount;
+
+  // Update aux display
+  const liveEl = document.getElementById('numbers-live-digit');
+  const confEl = document.getElementById('numbers-live-conf');
+  if (liveEl) liveEl.textContent = bestLabel;
+  if (confEl) confEl.textContent = (avgConf * 100).toFixed(0) + '%';
+
+  if (numCurrentSubMode === 'recognize') {
+    handleNumRecognize(bestLabel, avgConf, bestCount, params, entropy);
+  } else if (numCurrentSubMode === 'practice') {
+    handleNumPracticeDetection(bestLabel, avgConf);
+  } else if (numCurrentSubMode === 'learn') {
+    handleNumLearnDetection(bestLabel, avgConf);
+  }
+}
+
+function handleNumRecognize(label, conf, count, params, entropy) {
+  const predEl = document.getElementById('num-predicted');
+  const confBarEl = document.getElementById('num-confidence-bar');
+  const confLevelEl = document.getElementById('num-confidence-level');
+  const confLabelEl = document.getElementById('num-confidence');
+
+  if (numCooldownCounter > 0) numCooldownCounter--;
+
+  // Update confidence display
+  let level, cls;
+  if (conf >= 0.80 && entropy < 0.4) { level = 'High'; cls = 'conf-high'; }
+  else if (conf >= 0.55 && entropy < 0.7) { level = 'Medium'; cls = 'conf-med'; }
+  else { level = 'Low'; cls = 'conf-low'; }
+
+  if (confLabelEl) confLabelEl.textContent = `Confidence: ${(conf * 100).toFixed(0)}%`;
+  if (confBarEl) { confBarEl.style.width = `${conf * 100}%`; confBarEl.className = `confidence-bar ${cls}`; }
+  if (confLevelEl) { confLevelEl.textContent = level; confLevelEl.className = `confidence-level ${cls}`; }
+
+  if (conf >= params.confThresh) {
+    if (predEl) { predEl.textContent = label; predEl.className = `predicted-letter ${cls}`; }
+
+    if (count >= params.hold && numCooldownCounter === 0) {
+      numCurrentDigits += label;
+      numSessionDigitCount++;
+      numUpdateRecognizeUI();
+      numCooldownCounter = detectionSpeed === 'careful' ? 55 : COMMIT_COOLDOWN;
+      if (predEl) { predEl.classList.add('flash'); setTimeout(() => predEl.classList.remove('flash'), 200); }
+    }
+  }
+}
+
+function numUpdateRecognizeUI() {
+  const digitsEl = document.getElementById('num-current-digits');
+  const statDigitsEl = document.getElementById('num-stat-digits');
+  const statNumsEl = document.getElementById('num-stat-numbers');
+  if (digitsEl) digitsEl.textContent = numCurrentDigits || '—';
+  if (statDigitsEl) statDigitsEl.textContent = numSessionDigitCount;
+  if (statNumsEl) statNumsEl.textContent = numSessionNumberCount;
+}
+
+function numCommitNumber() {
+  if (numCurrentDigits.length === 0) return;
+  const sep = numCompletedText.length > 0 ? ' ' : '';
+  numCompletedText += sep + numCurrentDigits;
+  numSessionNumberCount++;
+  const textEl = document.getElementById('num-text-content');
+  if (textEl) textEl.textContent = numCompletedText;
+  numCurrentDigits = '';
+  numUpdateRecognizeUI();
+}
+
+function numClearText() {
+  numCompletedText = '';
+  numCurrentDigits = '';
+  const textEl = document.getElementById('num-text-content');
+  if (textEl) textEl.textContent = '';
+  numUpdateRecognizeUI();
+}
+
+function numAddSpace() {
+  if (numCurrentDigits.length > 0) numCommitNumber();
+}
+
+function numDeleteLast() {
+  if (numCurrentDigits.length > 0) {
+    numCurrentDigits = numCurrentDigits.slice(0, -1);
+    numUpdateRecognizeUI();
+  } else {
+    const parts = numCompletedText.trim().split(' ');
+    parts.pop();
+    numCompletedText = parts.join(' ');
+    const textEl = document.getElementById('num-text-content');
+    if (textEl) textEl.textContent = numCompletedText;
+  }
+}
+
+// Numbers sub-mode switching
+function switchNumbersMode(mode) {
+  numCurrentSubMode = mode;
+  ['recognize','practice','learn'].forEach(m => {
+    const btn = document.getElementById('numtab-' + m);
+    const view = document.getElementById('numbers-view-' + m);
+    if (btn) btn.classList.toggle('active', m === mode);
+    if (view) view.style.display = (m === mode) ? '' : 'none';
+  });
+  if (mode === 'practice') {
+    numInitPracticeGrid();
+    numNextPracticeTarget();
+  }
+  if (mode === 'learn') {
+    numInitLearnGrid();
+    numSelectLearnDigit(numLearnCurrent);
+    switchNumLearnMode(numCurrentLearnSubMode);
+    numUpdateStatsUI();
+    numUpdateRing();
+  }
+}
+
+// === NUMBERS PRACTICE ===
+function numInitPracticeGrid() {
+  const grid = document.getElementById('num-practice-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  NUM_LABELS.forEach(d => {
+    const cell = document.createElement('div');
+    cell.className = 'practice-grid-cell';
+    const stats = numPracticeStats[d];
+    if (stats.total >= 3) cell.classList.add('good');
+    else if (stats.total >= 1) cell.classList.add('ok');
+    cell.textContent = d;
+    if (stats.total > 0) cell.title = d + ': ' + stats.correct + '/' + stats.total;
+    grid.appendChild(cell);
+  });
+}
+
+function numStartDrill(mode) {
+  numPracticeDrillMode = mode;
+  numPracticeDrillIndex = 0;
+  numPracticeScore = { correct: 0, total: 0, streak: 0, bestStreak: 0 };
+  numUpdatePracticeScore();
+  numNextPracticeTarget();
+}
+
+function numNextPracticeTarget() {
+  numPracticeShowingResult = false;
+  numPracticeCorrectFrames = 0;
+
+  if (numPracticeDrillMode === 'sequential') {
+    numPracticeTarget = NUM_LABELS[numPracticeDrillIndex % NUM_LABELS.length];
+    numPracticeDrillIndex++;
+  } else if (numPracticeDrillMode === 'random') {
+    numPracticeTarget = NUM_LABELS[Math.floor(Math.random() * NUM_LABELS.length)];
+  } else {
+    const weak = NUM_LABELS.filter(d => (numPracticeStats[d].total || 0) < 3);
+    numPracticeTarget = weak.length > 0
+      ? weak[Math.floor(Math.random() * weak.length)]
+      : NUM_LABELS[Math.floor(Math.random() * NUM_LABELS.length)];
+  }
+
+  const targetEl = document.getElementById('num-practice-target');
+  if (targetEl) targetEl.textContent = numPracticeTarget;
+  const resultEl = document.getElementById('num-practice-result');
+  if (resultEl) { resultEl.textContent = ''; resultEl.className = 'practice-result'; }
+  const qualityEl = document.getElementById('num-practice-quality');
+  if (qualityEl) qualityEl.textContent = '';
+}
+
+function handleNumPracticeDetection(detected, confidence) {
+  if (numPracticeShowingResult) return;
+
+  const qualityEl = document.getElementById('num-practice-quality');
+  const resultEl = document.getElementById('num-practice-result');
+
+  if (qualityEl) {
+    if (confidence >= 0.90) { qualityEl.textContent = 'Excellent form!'; qualityEl.className = 'practice-quality quality-high'; }
+    else if (confidence >= 0.70) { qualityEl.textContent = 'Good — hold steady'; qualityEl.className = 'practice-quality quality-med'; }
+    else { qualityEl.textContent = 'Adjust your hand position'; qualityEl.className = 'practice-quality quality-low'; }
+  }
+
+  if (detected === numPracticeTarget) {
+    numPracticeCorrectFrames++;
+    if (numPracticeCorrectFrames >= PRACTICE_HOLD_REQUIRED) {
+      numPracticeShowingResult = true;
+      numPracticeScore.correct++;
+      numPracticeScore.total++;
+      numPracticeScore.streak++;
+      if (numPracticeScore.streak > numPracticeScore.bestStreak)
+        numPracticeScore.bestStreak = numPracticeScore.streak;
+      numPracticeStats[numPracticeTarget].correct++;
+      numPracticeStats[numPracticeTarget].total++;
+
+      if (resultEl) { resultEl.textContent = 'Correct!'; resultEl.className = 'practice-result result-correct'; }
+      numUpdatePracticeScore();
+      numInitPracticeGrid();
+      setTimeout(numNextPracticeTarget, 1200);
+    }
+  } else {
+    numPracticeCorrectFrames = 0;
+    if (resultEl) {
+      resultEl.textContent = 'Detected: ' + detected;
+      resultEl.className = 'practice-result result-wrong';
+    }
+  }
+}
+
+function numUpdatePracticeScore() {
+  const scoreEl = document.getElementById('num-practice-score-display');
+  const streakEl = document.getElementById('num-practice-streak-display');
+  if (scoreEl) scoreEl.textContent = numPracticeScore.correct + ' / ' + numPracticeScore.total + ' correct';
+  if (streakEl) streakEl.textContent = 'Streak: ' + numPracticeScore.streak;
+}
+
+function numResetPracticeStats() {
+  NUM_LABELS.forEach(d => { numPracticeStats[d] = { correct: 0, total: 0 }; });
+  numPracticeScore = { correct: 0, total: 0, streak: 0, bestStreak: 0 };
+  numUpdatePracticeScore();
+  numInitPracticeGrid();
+}
+
+// === NUMBERS LEARN MODE ===
+function numInitLearnGrid() {
+  const grid = document.getElementById('num-learn-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  NUM_LABELS.forEach(d => {
+    const cell = document.createElement('div');
+    const p = numLearnProgress[d];
+    let cls = 'learn-grid-cell';
+    if (d === numLearnCurrent) cls += ' active';
+    if (p && p.level !== 'new') cls += ' mastery-' + p.level;
+    cell.className = cls;
+    cell.textContent = d;
+    cell.onclick = () => numSelectLearnDigit(d);
+    grid.appendChild(cell);
+  });
+}
+
+function numSelectLearnDigit(digit) {
+  numLearnCurrent = digit;
+  if (numLearnProgress[digit].level === 'new') {
+    numLearnProgress[digit].level = 'seen';
+    numSaveProgress();
+  }
+
+  // Update grid active state
+  document.querySelectorAll('#num-learn-grid .learn-grid-cell').forEach((cell, i) => {
+    const d = NUM_LABELS[i];
+    const p = numLearnProgress[d];
+    let cls = 'learn-grid-cell';
+    if (d === digit) cls += ' active';
+    if (p && p.level !== 'new') cls += ' mastery-' + p.level;
+    cell.className = cls;
+  });
+
+  // Update browse view
+  const titleEl = document.getElementById('num-learn-title');
+  const mnemonicEl = document.getElementById('num-learn-mnemonic');
+  const diffEl = document.getElementById('num-learn-diff-badge');
+  const mastEl = document.getElementById('num-learn-mastery-badge');
+  const stepsEl = document.getElementById('num-learn-step-list');
+  const similarEl = document.getElementById('num-learn-similar');
+  const tryitEl = document.getElementById('num-learn-tryit-msg');
+  const progEl = document.getElementById('num-learn-progress');
+
+  if (titleEl) titleEl.textContent = digit;
+  if (mnemonicEl) mnemonicEl.textContent = NUM_MNEMONICS[digit] || '';
+
+  if (diffEl) {
+    const diff = NUM_DIFFICULTY[digit] || 'beginner';
+    diffEl.textContent = diff.charAt(0).toUpperCase() + diff.slice(1);
+    diffEl.className = 'learn-badge diff' + (diff !== 'beginner' ? ' ' + diff : '');
+  }
+
+  if (mastEl) {
+    const p = numLearnProgress[digit];
+    const lvl = p ? p.level : 'new';
+    mastEl.textContent = lvl.charAt(0).toUpperCase() + lvl.slice(1);
+    mastEl.className = 'learn-badge mast' + (lvl !== 'new' ? ' ' + lvl : '');
+  }
+
+  if (stepsEl) {
+    stepsEl.innerHTML = '';
+    const steps = NUM_STEPS[digit] || [NUM_DESCRIPTIONS[digit] || ''];
+    steps.forEach(s => { const li = document.createElement('li'); li.textContent = s; stepsEl.appendChild(li); });
+  }
+
+  if (similarEl) {
+    const conf = NUM_CONFUSABLE[digit];
+    if (conf && conf.length > 0) {
+      similarEl.innerHTML = '<span class="learn-section-label">Watch Out</span> Similar to: ' +
+        conf.map(c => '<span class="sim-tag">' + c + '</span>').join(' ');
+    } else {
+      similarEl.innerHTML = '';
+    }
+  }
+
+  if (progEl) {
+    let seen = 0;
+    NUM_LABELS.forEach(d => { if (numLearnProgress[d].level !== 'new') seen++; });
+    progEl.textContent = 'Number ' + (NUM_LABELS.indexOf(digit) + 1) + ' of ' + NUM_LABELS.length + '  \u00b7  Seen: ' + seen + '/' + NUM_LABELS.length;
+  }
+
+  if (tryitEl) { tryitEl.textContent = 'Show your hand to the camera and sign this number'; tryitEl.className = 'learn-tryit-msg'; }
+  const holdBar = document.getElementById('num-learn-hold-bar-browse');
+  if (holdBar) holdBar.style.width = '0%';
+  const holdPct = document.getElementById('num-learn-hold-pct');
+  if (holdPct) holdPct.textContent = '0%';
+
+  numCorrectFrames = 0;
+  numSetRefImage('num-learn-ref-img', digit);
+  numUpdateRing();
+}
+
+function numLearnNext() {
+  const idx = NUM_LABELS.indexOf(numLearnCurrent);
+  numSelectLearnDigit(NUM_LABELS[(idx + 1) % NUM_LABELS.length]);
+}
+
+function numLearnPrev() {
+  const idx = NUM_LABELS.indexOf(numLearnCurrent);
+  numSelectLearnDigit(NUM_LABELS[(idx + NUM_LABELS.length - 1) % NUM_LABELS.length]);
+}
+
+function numPracticeThis() {
+  switchNumbersMode('practice');
+  numPracticeDrillMode = 'sequential';
+  numPracticeTarget = numLearnCurrent;
+  numPracticeCorrectFrames = 0;
+  numPracticeShowingResult = false;
+  const targetEl = document.getElementById('num-practice-target');
+  if (targetEl) targetEl.textContent = numPracticeTarget;
+}
+
+function switchNumLearnMode(mode) {
+  numCurrentLearnSubMode = mode;
+  ['browse','lesson','quiz','flashcard'].forEach(m => {
+    const tab = document.getElementById('nltab-' + m);
+    const view = document.getElementById('num-learn-view-' + m);
+    if (tab) tab.classList.toggle('active', m === mode);
+    if (view) view.style.display = (m === mode) ? '' : 'none';
+  });
+  if (mode === 'lesson') numInitLessonView();
+  if (mode === 'quiz') numInitQuizView();
+  if (mode === 'flashcard') numInitFlashcardView();
+}
+
+function numUpdateMastery(digit, wasCorrect) {
+  const p = numLearnProgress[digit];
+  p.attempts++;
+  if (wasCorrect) p.correct++;
+  const rate = p.attempts > 0 ? p.correct / p.attempts : 0;
+  if (p.attempts >= 5 && rate >= 0.8) p.level = 'mastered';
+  else if (p.attempts >= 2 && rate >= 0.5) p.level = 'practiced';
+  else if (p.attempts >= 1) p.level = 'seen';
+  numSaveProgress();
+  numUpdateStatsUI();
+  numUpdateRing();
+}
+
+function numUpdateStatsUI() {
+  let mastered = 0, totalAttempts = 0, totalCorrect = 0;
+  NUM_LABELS.forEach(d => {
+    const p = numLearnProgress[d];
+    if (p.level === 'mastered') mastered++;
+    totalAttempts += p.attempts;
+    totalCorrect += p.correct;
+  });
+  const mastEl = document.getElementById('num-ls-mastered');
+  const accEl = document.getElementById('num-ls-accuracy');
+  const streakEl = document.getElementById('num-ls-streak');
+  if (mastEl) mastEl.innerHTML = mastered + '<span class="learn-stat-unit">/' + NUM_LABELS.length + '</span>';
+  if (accEl) accEl.textContent = totalAttempts > 0 ? Math.round(totalCorrect / totalAttempts * 100) + '%' : '—';
+  if (streakEl) streakEl.textContent = numQuizScore.bestStreak;
+}
+
+function numUpdateRing() {
+  let mastered = 0;
+  NUM_LABELS.forEach(d => { if (numLearnProgress[d].level === 'mastered') mastered++; });
+  const pct = Math.round(mastered / NUM_LABELS.length * 100);
+  const circumference = 213.6;
+  const offset = circumference - (circumference * pct / 100);
+  const ringEl = document.getElementById('num-learn-ring-fill');
+  const pctEl = document.getElementById('num-learn-ring-pct');
+  if (ringEl) ringEl.style.strokeDashoffset = offset;
+  if (pctEl) pctEl.textContent = pct + '%';
+}
+
+function numResetLearnProgress() {
+  if (!confirm('Reset all number learning progress?')) return;
+  NUM_LABELS.forEach(d => { numLearnProgress[d] = { level: 'new', attempts: 0, correct: 0 }; });
+  numQuizScore = { correct: 0, total: 0, streak: 0, bestStreak: 0 };
+  numSaveProgress();
+  numInitLearnGrid();
+  numUpdateStatsUI();
+  numUpdateRing();
+}
+
+// === NUMBERS LEARN DETECTION ===
+function handleNumLearnDetection(detected, confidence) {
+  const matchEl = document.getElementById('numbers-match-display');
+
+  let targetDigit = numLearnCurrent;
+  if (numCurrentLearnSubMode === 'quiz' && numQuizActive && (numQuizType === 'sign' || numQuizType === 'speed')) {
+    targetDigit = numQuizCurrent;
+  }
+
+  const isMatch = detected === targetDigit && confidence >= 0.60;
+
+  if (isMatch) {
+    numCorrectFrames = Math.min(numCorrectFrames + 1, LEARN_HOLD_REQUIRED);
+  } else {
+    numCorrectFrames = Math.max(numCorrectFrames - 1, 0);
+  }
+
+  const progress = numCorrectFrames / LEARN_HOLD_REQUIRED;
+  const pct = Math.round(progress * 100);
+
+  // Update hold bars
+  ['numbers-hold-bar', 'num-learn-hold-bar-browse', 'num-lesson-hold-bar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.width = pct + '%';
+  });
+  const holdPctEl = document.getElementById('num-learn-hold-pct');
+  if (holdPctEl) holdPctEl.textContent = pct + '%';
+
+  if (matchEl) {
+    if (numCorrectFrames >= LEARN_HOLD_REQUIRED) {
+      matchEl.className = 'learn-match-display match-correct';
+      matchEl.textContent = '\u2713 Correct!';
+    } else if (isMatch) {
+      matchEl.className = 'learn-match-display match-holding';
+      matchEl.textContent = 'Hold\u2026';
+    } else if (detected && detected !== '—') {
+      matchEl.className = 'learn-match-display match-wrong';
+      matchEl.textContent = 'Keep trying';
+    } else {
+      matchEl.className = 'learn-match-display';
+      matchEl.textContent = '';
+    }
+  }
+
+  // Browse try-it
+  if (numCurrentLearnSubMode === 'browse') {
+    const tryitEl = document.getElementById('num-learn-tryit-msg');
+    if (tryitEl) {
+      if (numCorrectFrames >= LEARN_HOLD_REQUIRED) {
+        tryitEl.textContent = '\u2713 Great job! You signed ' + targetDigit + ' correctly!';
+        tryitEl.className = 'learn-tryit-msg success';
+      } else if (isMatch) {
+        tryitEl.textContent = 'Hold steady\u2026 ' + pct + '%';
+        tryitEl.className = 'learn-tryit-msg holding';
+      } else if (detected && detected !== '—') {
+        tryitEl.textContent = 'Detected: ' + detected + ' \u2014 Try signing ' + targetDigit;
+        tryitEl.className = 'learn-tryit-msg';
+      }
+    }
+  }
+
+  // Lesson feedback
+  if (numCurrentLearnSubMode === 'lesson' && numLessonActive) {
+    const fb = document.getElementById('num-lesson-feedback');
+    if (fb) {
+      if (numCorrectFrames >= LEARN_HOLD_REQUIRED) { fb.textContent = '\u2713 Correct!'; fb.className = 'lesson-feedback correct'; }
+      else if (isMatch) { fb.textContent = 'Hold steady\u2026'; fb.className = 'lesson-feedback holding'; }
+      else { fb.textContent = 'Sign the number ' + targetDigit; fb.className = 'lesson-feedback'; }
+    }
+  }
+
+  // On success
+  if (numCorrectFrames >= LEARN_HOLD_REQUIRED) {
+    numCorrectFrames = 0;
+    numUpdateMastery(targetDigit, true);
+    numInitLearnGrid();
+
+    if (numCurrentLearnSubMode === 'lesson' && numLessonActive) {
+      numLessonIndex++;
+      setTimeout(numRunLessonStep, 800);
+    } else if (numCurrentLearnSubMode === 'quiz' && numQuizActive && (numQuizType === 'sign' || numQuizType === 'speed')) {
+      numQuizCheckSign();
+    } else if (numCurrentLearnSubMode === 'browse') {
+      setTimeout(() => {
+        const tryitEl = document.getElementById('num-learn-tryit-msg');
+        if (tryitEl) { tryitEl.textContent = 'Show your hand to the camera and sign this number'; tryitEl.className = 'learn-tryit-msg'; }
+      }, 2000);
+    }
+  }
+}
+
+// === NUMBERS LESSON MODE ===
+function numInitLessonView() {
+  const digit = numLearnCurrent;
+  const targetEl = document.getElementById('num-lesson-target');
+  const descEl = document.getElementById('num-lesson-description');
+  const stepsEl = document.getElementById('num-lesson-steps');
+  if (targetEl) targetEl.textContent = digit;
+  if (descEl) descEl.textContent = NUM_DESCRIPTIONS[digit] || '';
+  if (stepsEl) {
+    const steps = NUM_STEPS[digit] || [];
+    stepsEl.innerHTML = steps.length > 0 ? '<ol>' + steps.map(s => '<li>' + s + '</li>').join('') + '</ol>' : '';
+  }
+  numSetRefImage('num-lesson-ref-img', digit);
+  numUpdateLessonProgress();
+}
+
+function numUpdateLessonProgress() {
+  const labelEl = document.getElementById('num-lesson-step-label');
+  const barEl = document.getElementById('num-lesson-bar-fill');
+  if (labelEl) labelEl.textContent = 'Number ' + (numLessonIndex + 1) + ' of ' + NUM_LABELS.length;
+  if (barEl) barEl.style.width = ((numLessonIndex / NUM_LABELS.length) * 100) + '%';
+}
+
+function numToggleLesson() {
+  numLessonActive = !numLessonActive;
+  const btn = document.getElementById('num-btn-lesson-toggle');
+  if (numLessonActive) {
+    btn.textContent = '\u25A0 Stop Lesson';
+    btn.classList.add('stop');
+    numLessonIndex = NUM_LABELS.indexOf(numLearnCurrent);
+    numCorrectFrames = 0;
+    numRunLessonStep();
+  } else {
+    btn.textContent = '\u25B6 Start Lesson';
+    btn.classList.remove('stop');
+    numCorrectFrames = 0;
+    const fb = document.getElementById('num-lesson-feedback');
+    if (fb) { fb.textContent = 'Lesson paused'; fb.className = 'lesson-feedback'; }
+  }
+}
+
+function numRunLessonStep() {
+  if (!numLessonActive) return;
+  if (numLessonIndex >= NUM_LABELS.length) {
+    numLessonActive = false;
+    const btn = document.getElementById('num-btn-lesson-toggle');
+    if (btn) { btn.textContent = '\u25B6 Start Lesson'; btn.classList.remove('stop'); }
+    const fb = document.getElementById('num-lesson-feedback');
+    if (fb) { fb.textContent = '\u2728 Congratulations! You completed all numbers!'; fb.className = 'lesson-feedback correct'; }
+    return;
+  }
+  const digit = NUM_LABELS[numLessonIndex % NUM_LABELS.length];
+  numSelectLearnDigit(digit);
+  const targetEl = document.getElementById('num-lesson-target');
+  const descEl = document.getElementById('num-lesson-description');
+  const stepsEl = document.getElementById('num-lesson-steps');
+  if (targetEl) targetEl.textContent = digit;
+  if (descEl) descEl.textContent = NUM_DESCRIPTIONS[digit] || '';
+  if (stepsEl) {
+    const steps = NUM_STEPS[digit] || [];
+    stepsEl.innerHTML = steps.length > 0 ? '<ol>' + steps.map(s => '<li>' + s + '</li>').join('') + '</ol>' : '';
+  }
+  numSetRefImage('num-lesson-ref-img', digit);
+  numUpdateLessonProgress();
+  numCorrectFrames = 0;
+  const fb = document.getElementById('num-lesson-feedback');
+  if (fb) { fb.textContent = 'Sign the number ' + digit + ' to continue'; fb.className = 'lesson-feedback'; }
+  const hb = document.getElementById('num-lesson-hold-bar');
+  if (hb) hb.style.width = '0%';
+}
+
+function numLessonSkip() {
+  if (!numLessonActive) {
+    numLessonActive = true;
+    const btn = document.getElementById('num-btn-lesson-toggle');
+    if (btn) { btn.textContent = '\u25A0 Stop Lesson'; btn.classList.add('stop'); }
+    numLessonIndex = NUM_LABELS.indexOf(numLearnCurrent);
+  }
+  numLessonIndex++;
+  numRunLessonStep();
+}
+
+function numLessonRestart() {
+  numLessonIndex = 0;
+  numLessonActive = true;
+  const btn = document.getElementById('num-btn-lesson-toggle');
+  if (btn) { btn.textContent = '\u25A0 Stop Lesson'; btn.classList.add('stop'); }
+  numRunLessonStep();
+}
+
+// === NUMBERS QUIZ MODE ===
+function numInitQuizView() {
+  const promptEl = document.getElementById('num-quiz-prompt');
+  if (promptEl) promptEl.textContent = 'Choose a quiz type above to begin!';
+  const optEl = document.getElementById('num-quiz-options');
+  if (optEl) optEl.innerHTML = '';
+  const fbEl = document.getElementById('num-quiz-feedback');
+  if (fbEl) { fbEl.textContent = ''; fbEl.className = 'quiz-feedback'; }
+}
+
+function numStartQuiz(type) {
+  numQuizType = type;
+  numQuizActive = true;
+  numQuizScore = { correct: 0, total: 0, streak: 0, bestStreak: numQuizScore.bestStreak || 0 };
+  if (numQuizTimer) { clearInterval(numQuizTimer); numQuizTimer = null; }
+
+  ['sign','identify','speed'].forEach(t => {
+    const el = document.getElementById('nqtype-' + t);
+    if (el) el.classList.toggle('active', t === type);
+  });
+
+  const resEl = document.getElementById('num-quiz-result');
+  if (resEl) resEl.style.display = 'none';
+  const timerWrap = document.getElementById('num-quiz-timer-wrap');
+
+  if (type === 'speed') {
+    numQuizTimeLeft = 30;
+    if (timerWrap) timerWrap.style.display = '';
+    numQuizTimer = setInterval(numQuizTimerTick, 1000);
+    numUpdateQuizTimerUI();
+  } else {
+    if (timerWrap) timerWrap.style.display = 'none';
+  }
+
+  numUpdateQuizScoreUI();
+  numQuizNext();
+}
+
+function numQuizNext() {
+  if (!numQuizActive) return;
+  const promptEl = document.getElementById('num-quiz-prompt');
+  const optEl = document.getElementById('num-quiz-options');
+  const fbEl = document.getElementById('num-quiz-feedback');
+  const quizImgEl = document.getElementById('num-quiz-ref-img');
+  const letterBig = document.getElementById('num-quiz-letter-big');
+
+  if (fbEl) { fbEl.textContent = ''; fbEl.className = 'quiz-feedback'; }
+  if (optEl) optEl.innerHTML = '';
+
+  if (numQuizType === 'sign' || numQuizType === 'speed') {
+    numQuizCurrent = NUM_LABELS[Math.floor(Math.random() * NUM_LABELS.length)];
+    if (promptEl) promptEl.textContent = 'Sign this number:';
+    if (letterBig) { letterBig.textContent = numQuizCurrent; letterBig.style.display = ''; }
+    if (quizImgEl) quizImgEl.style.display = 'none';
+    numCorrectFrames = 0;
+  } else if (numQuizType === 'identify') {
+    numQuizCurrent = NUM_LABELS[Math.floor(Math.random() * NUM_LABELS.length)];
+    if (promptEl) promptEl.textContent = 'What number is this?';
+    if (letterBig) letterBig.style.display = 'none';
+    if (quizImgEl) { quizImgEl.style.display = ''; numSetRefImage('num-quiz-ref-img', numQuizCurrent); }
+    const options = numGenerateQuizOptions(numQuizCurrent, 4);
+    if (optEl) {
+      options.forEach(d => {
+        const btn = document.createElement('button');
+        btn.className = 'quiz-opt-btn';
+        btn.textContent = d;
+        btn.onclick = () => numQuizCheckIdentify(d, btn);
+        optEl.appendChild(btn);
+      });
+    }
+  }
+}
+
+function numGenerateQuizOptions(correct, count) {
+  const opts = new Set([correct]);
+  while (opts.size < count) opts.add(NUM_LABELS[Math.floor(Math.random() * NUM_LABELS.length)]);
+  return Array.from(opts).sort(() => Math.random() - 0.5);
+}
+
+function numQuizCheckIdentify(digit, btnEl) {
+  const optBtns = document.querySelectorAll('#num-quiz-options .quiz-opt-btn');
+  optBtns.forEach(b => b.disabled = true);
+
+  const correct = digit === numQuizCurrent;
+  numQuizScore.total++;
+  if (correct) {
+    numQuizScore.correct++;
+    numQuizScore.streak++;
+    if (numQuizScore.streak > numQuizScore.bestStreak) numQuizScore.bestStreak = numQuizScore.streak;
+    btnEl.classList.add('correct');
+    numUpdateMastery(numQuizCurrent, true);
+    numShowQuizFeedback(true, numQuizCurrent);
+  } else {
+    numQuizScore.streak = 0;
+    btnEl.classList.add('wrong');
+    optBtns.forEach(b => { if (b.textContent === numQuizCurrent) b.classList.add('correct'); });
+    numUpdateMastery(numQuizCurrent, false);
+    numShowQuizFeedback(false, numQuizCurrent);
+  }
+  numUpdateQuizScoreUI();
+  setTimeout(() => { if (numQuizActive) numQuizNext(); }, 1500);
+}
+
+function numQuizCheckSign() {
+  numQuizScore.total++;
+  numQuizScore.correct++;
+  numQuizScore.streak++;
+  if (numQuizScore.streak > numQuizScore.bestStreak) numQuizScore.bestStreak = numQuizScore.streak;
+  numUpdateMastery(numQuizCurrent, true);
+  numShowQuizFeedback(true, numQuizCurrent);
+  numUpdateQuizScoreUI();
+  setTimeout(() => { if (numQuizActive) numQuizNext(); }, 1000);
+}
+
+function numShowQuizFeedback(correct, digit) {
+  const fbEl = document.getElementById('num-quiz-feedback');
+  if (!fbEl) return;
+  if (correct) { fbEl.textContent = '\u2713 Correct! That\'s ' + digit; fbEl.className = 'quiz-feedback correct'; }
+  else { fbEl.textContent = '\u2717 The answer was ' + digit; fbEl.className = 'quiz-feedback wrong'; }
+}
+
+function numUpdateQuizScoreUI() {
+  const scoreEl = document.getElementById('num-quiz-score');
+  const streakEl = document.getElementById('num-quiz-streak');
+  if (scoreEl) scoreEl.textContent = numQuizScore.correct + ' / ' + numQuizScore.total;
+  if (streakEl) streakEl.textContent = '\uD83D\uDD25 ' + numQuizScore.streak;
+}
+
+function numQuizTimerTick() {
+  numQuizTimeLeft--;
+  numUpdateQuizTimerUI();
+  if (numQuizTimeLeft <= 0) {
+    clearInterval(numQuizTimer);
+    numQuizTimer = null;
+    numQuizActive = false;
+    numShowQuizResult();
+  }
+}
+
+function numUpdateQuizTimerUI() {
+  const fillEl = document.getElementById('num-quiz-timer-fill');
+  const textEl = document.getElementById('num-quiz-timer-text');
+  if (fillEl) fillEl.style.width = ((numQuizTimeLeft / 30) * 100) + '%';
+  if (textEl) textEl.textContent = numQuizTimeLeft + 's';
+}
+
+function numShowQuizResult() {
+  const resEl = document.getElementById('num-quiz-result');
+  if (!resEl) return;
+  const rate = numQuizScore.total > 0 ? Math.round(numQuizScore.correct / numQuizScore.total * 100) : 0;
+  resEl.innerHTML = '<h3>Quiz Complete!</h3>' +
+    '<p class="qr-stat">Score: <strong>' + numQuizScore.correct + ' / ' + numQuizScore.total + '</strong> (' + rate + '%)</p>' +
+    '<p class="qr-stat">Best Streak: <strong>' + numQuizScore.bestStreak + '</strong></p>' +
+    '<button onclick="numStartQuiz(\'' + numQuizType + '\')">Play Again</button>';
+  resEl.style.display = '';
+}
+
+// === NUMBERS FLASHCARD MODE ===
+function numInitFlashcardView() {
+  numFcBuildDeck();
+  numFcIndex = 0;
+  numFcFlipped = false;
+  numFcRender();
+}
+
+function numFcBuildDeck() {
+  if (numFcFilter === 'all') { numFcDeck = NUM_LABELS.slice(); }
+  else if (numFcFilter === 'new') { numFcDeck = NUM_LABELS.filter(d => numLearnProgress[d].level === 'new' || numLearnProgress[d].level === 'seen'); }
+  else { numFcDeck = NUM_LABELS.filter(d => numLearnProgress[d].level !== 'mastered'); }
+  if (numFcDeck.length === 0) numFcDeck = NUM_LABELS.slice();
+  numFcDeck.sort(() => Math.random() - 0.5);
+}
+
+function numFcSetFilter(filter) {
+  numFcFilter = filter;
+  ['all','new','weak'].forEach(f => {
+    const el = document.getElementById('num-fc-f-' + f);
+    if (el) el.classList.toggle('active', f === filter);
+  });
+  numFcBuildDeck();
+  numFcIndex = 0;
+  numFcFlipped = false;
+  numFcRender();
+}
+
+function numFcFlip() {
+  numFcFlipped = !numFcFlipped;
+  const card = document.getElementById('num-fc-card');
+  if (card) card.classList.toggle('flipped', numFcFlipped);
+  if (numFcFlipped) {
+    const digit = numFcDeck[numFcIndex % numFcDeck.length];
+    numSetRefImage('num-fc-ref-img', digit);
+    const descEl = document.getElementById('num-fc-back-desc');
+    if (descEl) descEl.textContent = NUM_DESCRIPTIONS[digit] || '';
+  }
+}
+
+function numFcNext() {
+  numFcIndex = (numFcIndex + 1) % numFcDeck.length;
+  numFcFlipped = false;
+  const card = document.getElementById('num-fc-card');
+  if (card) card.classList.remove('flipped');
+  numFcRender();
+}
+
+function numFcPrev() {
+  numFcIndex = (numFcIndex - 1 + numFcDeck.length) % numFcDeck.length;
+  numFcFlipped = false;
+  const card = document.getElementById('num-fc-card');
+  if (card) card.classList.remove('flipped');
+  numFcRender();
+}
+
+function numFcKnow() {
+  const digit = numFcDeck[numFcIndex % numFcDeck.length];
+  numUpdateMastery(digit, true);
+  numInitLearnGrid();
+  numFcNext();
+}
+
+function numFcDunno() {
+  const digit = numFcDeck[numFcIndex % numFcDeck.length];
+  numUpdateMastery(digit, false);
+  numInitLearnGrid();
+  numFcNext();
+}
+
+function numFcRender() {
+  if (numFcDeck.length === 0) return;
+  const digit = numFcDeck[numFcIndex % numFcDeck.length];
+  const frontEl = document.getElementById('num-fc-front-letter');
+  const counterEl = document.getElementById('num-fc-counter');
+  if (frontEl) frontEl.textContent = digit;
+  if (counterEl) counterEl.textContent = (numFcIndex + 1) + ' / ' + numFcDeck.length;
+}
+
+// Handle hand absent for numbers recognize mode
+function handleNumbersHandAbsent() {
+  numHandAbsentFrames++;
+  numPredictionBuffer = [];
+  if (numCurrentSubMode === 'recognize' && numHandAbsentFrames === AUTO_SPACE_FRAMES && numCurrentDigits.length > 0) {
+    numCommitNumber();
+  }
+  const liveEl = document.getElementById('numbers-live-digit');
+  if (liveEl) liveEl.textContent = '—';
+  const confEl = document.getElementById('numbers-live-conf');
+  if (confEl) confEl.textContent = '';
+  if (numCurrentSubMode === 'learn') {
+    numCorrectFrames = 0;
+    const matchEl = document.getElementById('numbers-match-display');
+    if (matchEl) { matchEl.className = 'learn-match-display'; matchEl.textContent = ''; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// END NUMBERS MODE
+// ═══════════════════════════════════════════════════════════════
+
+
 async function init() {
   const hands = new Hands({
     locateFile: (file) =>
@@ -2071,6 +3212,7 @@ async function init() {
   });
   await camera.start();
   await loadPretrainedModel();
+  await loadNumbersModel();
 }
 
 init();

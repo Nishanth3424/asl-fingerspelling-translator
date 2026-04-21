@@ -25,7 +25,7 @@
         <svg class="splash-hand-icon" viewBox="0 0 64 64" fill="none"><path d="M32 8c-2.2 0-4 1.8-4 4v18h-2V16c0-2.2-1.8-4-4-4s-4 1.8-4 4v18h-2V20c0-2.2-1.8-4-4-4s-4 1.8-4 4v16c0 10 8.1 18 18 18s18-8 18-18V20c0-2.2-1.8-4-4-4s-4 1.8-4 4v10h-2V12c0-2.2-1.8-4-4-4z" fill="currentColor"/></svg>
       </div>
       <h1 class="splash-title">ASL Fingerspelling Translator</h1>
-      <p class="splash-subtitle">Real-time A–Z sign language recognition in your browser</p>
+      <p class="splash-subtitle">Real-time A–Z &amp; 0–10 sign language recognition in your browser</p>
     </div>
     <div class="splash-loader-wrap">
       <div class="splash-bar-track"><div class="splash-bar-fill"></div></div>
@@ -46,7 +46,7 @@
       </div>
       <div class="nav-titles">
         <span class="nav-title">ASL Fingerspelling Translator</span>
-        <span class="nav-sub">A–Z Learn &amp; Recognize</span>
+        <span class="nav-sub">A–Z &amp; 0–10 Learn &amp; Recognize</span>
       </div>
     </div>
 
@@ -63,6 +63,10 @@
       <button id="tab-learn" class="nav-page-btn" onclick="switchMode('learn')">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0z"/></svg>
         Learn A–Z
+      </button>
+      <button id="tab-numbers" class="nav-page-btn" onclick="switchMode('numbers')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 2a1 1 0 00-.707 1.707L7 4.414V7H5a1 1 0 100 2h2v3H5a1 1 0 100 2h2v2.586l-.707.707A1 1 0 007 18h6a1 1 0 00.707-1.707L13 15.586V14h2a1 1 0 100-2h-2V9h2a1 1 0 100-2h-2V4.414l.707-.707A1 1 0 0013 2H7z"/></svg>
+        Numbers
       </button>
       <!-- Hidden tab kept for JS compatibility -->
       <button id="tab-collect" style="display:none"></button>
@@ -135,6 +139,20 @@
       <div class="learn-hold-wrap">
         <div class="learn-hold-track">
           <div id="learn-hold-bar" class="learn-hold-bar"></div>
+        </div>
+        <span class="learn-hold-label">Hold to confirm</span>
+      </div>
+    </div>
+
+    <!-- NUMBERS aux: live detected number -->
+    <div class="video-aux hidden" id="aux-numbers">
+      <div class="aux-label">Camera Sees</div>
+      <div class="aux-live-letter" id="numbers-live-digit">—</div>
+      <div class="aux-live-conf" id="numbers-live-conf"></div>
+      <div id="numbers-match-display" class="learn-match-display"></div>
+      <div class="learn-hold-wrap">
+        <div class="learn-hold-track">
+          <div id="numbers-hold-bar" class="learn-hold-bar"></div>
         </div>
         <span class="learn-hold-label">Hold to confirm</span>
       </div>
@@ -485,6 +503,324 @@
 
     </div>
     <!-- end page-learn -->
+
+    <!-- ════════════════════════════════
+         PAGE: NUMBERS (0-9)
+    ════════════════════════════════ -->
+    <div id="numbers-panel" class="page-content hidden">
+
+      <!-- Sub-nav for numbers modes -->
+      <div class="numbers-subnav">
+        <button class="numbers-subnav-btn active" id="numtab-recognize" onclick="switchNumbersMode('recognize')">Recognize</button>
+        <button class="numbers-subnav-btn" id="numtab-practice" onclick="switchNumbersMode('practice')">Practice</button>
+        <button class="numbers-subnav-btn" id="numtab-learn" onclick="switchNumbersMode('learn')">Learn 0–10</button>
+      </div>
+
+      <!-- ═══ NUMBERS: RECOGNIZE ═══ -->
+      <div id="numbers-view-recognize" class="numbers-view">
+        <div class="prediction-card">
+          <div class="pred-top">
+            <div class="pred-letter-section">
+              <div class="pred-label">Detected Number</div>
+              <div class="letter-frame">
+                <div id="num-predicted" class="predicted-letter">—</div>
+              </div>
+            </div>
+            <div class="pred-stats-section">
+              <div class="session-stat">
+                <div id="num-stat-digits" class="stat-value">0</div>
+                <div class="stat-label">Digits</div>
+              </div>
+              <div class="session-stat">
+                <div id="num-stat-numbers" class="stat-value">0</div>
+                <div class="stat-label">Numbers</div>
+              </div>
+            </div>
+          </div>
+          <div class="conf-section">
+            <div class="conf-header">
+              <span id="num-confidence" class="conf-label">Confidence</span>
+              <span id="num-confidence-level" class="confidence-level">—</span>
+            </div>
+            <div class="conf-bar-track">
+              <div id="num-confidence-bar" class="confidence-bar"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-card">
+          <div class="word-builder-section">
+            <div class="text-label">Number Being Built</div>
+            <div id="num-current-display" class="current-word-display">
+              <span id="num-current-digits">—</span>
+            </div>
+          </div>
+          <div class="sentence-section">
+            <div class="text-label">All Numbers</div>
+            <div id="num-translated-text" class="translated-text">
+              <span id="num-text-content"></span><span class="cursor">|</span>
+            </div>
+          </div>
+          <p class="text-hint">Drop hand to confirm number &nbsp;·&nbsp; Each digit adds to the number</p>
+          <div class="text-controls">
+            <button class="ctrl-btn" onclick="numClearText()">
+              <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 010-2h4a1 1 0 011-1h2a1 1 0 011 1h4a1 1 0 011 1zM4.118 4L4 4.059V13a1 1 0 001 1h6a1 1 0 001-1V4.059L11.882 4H4.118z" clip-rule="evenodd"/></svg>
+              Clear All
+            </button>
+            <button class="ctrl-btn" onclick="numAddSpace()">
+              <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 11a1 1 0 011-1h6a1 1 0 010 2H5a1 1 0 01-1-1z"/></svg>
+              Space
+            </button>
+            <button class="ctrl-btn" onclick="numDeleteLast()">
+              <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M13.683 1a2 2 0 011.456 3.369l-9 9A2 2 0 014.683 14H2.5a2 2 0 01-2-2V2.5a2 2 0 012-2h11.183zM5.83 5.146a.5.5 0 000 .708L7.975 8l-2.147 2.146a.5.5 0 00.707.708l2.147-2.147 2.146 2.147a.5.5 0 00.707-.708L9.39 8l2.146-2.146a.5.5 0 00-.707-.708L8.683 7.293 6.536 5.146a.5.5 0 00-.707 0z" clip-rule="evenodd"/></svg>
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ NUMBERS: PRACTICE ═══ -->
+      <div id="numbers-view-practice" class="numbers-view" style="display:none">
+        <div class="page-header">
+          <h2 class="page-title">Practice Numbers</h2>
+          <p class="page-desc">Sign the number shown. Hold it steady to score a point.</p>
+        </div>
+
+        <div class="practice-main-card">
+          <div class="practice-header">
+            <div class="practice-target-area">
+              <div class="practice-instruction">SIGN THIS NUMBER</div>
+              <div id="num-practice-target" class="practice-target-letter">1</div>
+            </div>
+            <div id="num-practice-result" class="practice-result"></div>
+          </div>
+          <div id="num-practice-quality" class="practice-quality"></div>
+          <div class="practice-stats-row">
+            <span id="num-practice-score-display">0 / 0 correct</span>
+            <span id="num-practice-streak-display">Streak: 0</span>
+          </div>
+        </div>
+
+        <div class="practice-grid-card">
+          <div class="card-label">Number Performance</div>
+          <div id="num-practice-grid" class="practice-letter-grid num-grid"></div>
+        </div>
+
+        <div class="practice-drill-card">
+          <div class="card-label">Drill Mode</div>
+          <div class="practice-controls">
+            <button class="practice-btn" onclick="numStartDrill('sequential')">0–10 Drill</button>
+            <button class="practice-btn" onclick="numStartDrill('random')">Random</button>
+            <button class="practice-btn" onclick="numStartDrill('weak')">Weak Numbers</button>
+            <button class="practice-btn reset-btn" onclick="numResetPracticeStats()">Reset Stats</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ NUMBERS: LEARN ═══ -->
+      <div id="numbers-view-learn" class="numbers-view" style="display:none">
+        <div class="learn-header-card">
+          <div class="learn-header-top">
+            <div>
+              <h2 class="page-title">Learn ASL Numbers 0–10</h2>
+              <p class="page-desc">Master ASL number signs step by step</p>
+            </div>
+            <div class="learn-ring-wrap">
+              <svg class="learn-ring-svg" viewBox="0 0 80 80">
+                <circle cx="40" cy="40" r="34" fill="none" stroke="var(--surface2)" stroke-width="6"/>
+                <circle id="num-learn-ring-fill" cx="40" cy="40" r="34" fill="none" stroke="var(--teal-light)" stroke-width="6" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="213.6" transform="rotate(-90 40 40)"/>
+              </svg>
+              <span class="learn-ring-pct" id="num-learn-ring-pct">0%</span>
+            </div>
+          </div>
+          <div class="learn-mode-tabs">
+            <button class="learn-tab active" onclick="switchNumLearnMode('browse')" id="nltab-browse">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"/></svg>
+              Browse
+            </button>
+            <button class="learn-tab" onclick="switchNumLearnMode('lesson')" id="nltab-lesson">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3z"/></svg>
+              Guided Lesson
+            </button>
+            <button class="learn-tab" onclick="switchNumLearnMode('quiz')" id="nltab-quiz">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+              Quiz
+            </button>
+            <button class="learn-tab" onclick="switchNumLearnMode('flashcard')" id="nltab-flashcard">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/></svg>
+              Flashcards
+            </button>
+          </div>
+        </div>
+
+        <!-- Number grid -->
+        <div class="learn-grid-card">
+          <div class="learn-grid-top">
+            <span class="card-label">Numbers</span>
+            <div class="learn-legend">
+              <span class="lg-item"><span class="lg-dot lg-new"></span>New</span>
+              <span class="lg-item"><span class="lg-dot lg-seen"></span>Seen</span>
+              <span class="lg-item"><span class="lg-dot lg-practiced"></span>Practiced</span>
+              <span class="lg-item"><span class="lg-dot lg-mastered"></span>Mastered</span>
+            </div>
+          </div>
+          <div id="num-learn-grid" class="learn-letter-grid num-learn-grid"></div>
+          <div id="num-learn-progress" class="learn-progress-text"></div>
+        </div>
+
+        <!-- ═══ NUM BROWSE VIEW ═══ -->
+        <div id="num-learn-view-browse" class="learn-view">
+          <div class="learn-browse-row">
+            <div class="learn-visual-card">
+              <img id="num-learn-ref-img" class="learn-ref-img" alt="ASL number sign reference" src="">
+            </div>
+            <div class="learn-detail-card">
+              <div class="learn-detail-top">
+                <div class="learn-letter-huge" id="num-learn-title">0</div>
+                <div class="learn-badges">
+                  <span class="learn-badge diff" id="num-learn-diff-badge">Beginner</span>
+                  <span class="learn-badge mast" id="num-learn-mastery-badge">New</span>
+                </div>
+              </div>
+              <div class="learn-steps-box">
+                <div class="learn-section-label">How to Sign</div>
+                <ol class="learn-step-list" id="num-learn-step-list"></ol>
+              </div>
+              <div class="learn-mnemonic-box" id="num-learn-mnemonic"></div>
+              <div class="learn-similar-box" id="num-learn-similar"></div>
+              <div class="learn-tryit-box">
+                <div class="learn-section-label">Try It Now</div>
+                <div class="learn-tryit-msg" id="num-learn-tryit-msg">Show your hand to the camera and sign this number</div>
+                <div class="learn-tryit-bar-wrap">
+                  <div class="learn-tryit-bar-track"><div id="num-learn-hold-bar-browse" class="learn-tryit-bar-fill"></div></div>
+                  <span class="learn-tryit-pct" id="num-learn-hold-pct">0%</span>
+                </div>
+              </div>
+              <div class="learn-detail-nav">
+                <button class="learn-nav-btn" onclick="numLearnPrev()">&#8592; Prev</button>
+                <button class="learn-practice-btn" onclick="numPracticeThis()">&#9654; Practice This Number</button>
+                <button class="learn-nav-btn" onclick="numLearnNext()">Next &#8594;</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══ NUM LESSON VIEW ═══ -->
+        <div id="num-learn-view-lesson" class="learn-view" style="display:none">
+          <div class="lesson-card">
+            <div class="lesson-top-row">
+              <span class="lesson-step-label" id="num-lesson-step-label">Number 1 of 10</span>
+              <div class="lesson-bar-track"><div class="lesson-bar-fill" id="num-lesson-bar-fill"></div></div>
+            </div>
+            <div class="lesson-body">
+              <div class="lesson-visual-col">
+                <div class="lesson-target-letter" id="num-lesson-target">0</div>
+                <img id="num-lesson-ref-img" class="learn-ref-img lesson-ref-img" alt="ASL reference" src="">
+              </div>
+              <div class="lesson-info-col">
+                <div class="lesson-desc" id="num-lesson-description"></div>
+                <div class="lesson-steps" id="num-lesson-steps"></div>
+                <div class="lesson-feedback" id="num-lesson-feedback">Sign the number shown to continue</div>
+                <div class="lesson-hold-wrap">
+                  <div class="lesson-hold-track"><div id="num-lesson-hold-bar" class="lesson-hold-bar"></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="lesson-controls">
+              <button class="lesson-btn" onclick="numLessonRestart()">&#8634; Restart</button>
+              <button class="lesson-btn primary" onclick="numToggleLesson()" id="num-btn-lesson-toggle">&#9654; Start Lesson</button>
+              <button class="lesson-btn" onclick="numLessonSkip()">Skip &#8594;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══ NUM QUIZ VIEW ═══ -->
+        <div id="num-learn-view-quiz" class="learn-view" style="display:none">
+          <div class="quiz-card">
+            <div class="quiz-top-row">
+              <div class="quiz-type-tabs">
+                <button class="quiz-type-btn active" onclick="numStartQuiz('sign')" id="nqtype-sign">Sign It</button>
+                <button class="quiz-type-btn" onclick="numStartQuiz('identify')" id="nqtype-identify">Identify</button>
+                <button class="quiz-type-btn" onclick="numStartQuiz('speed')" id="nqtype-speed">Speed Round</button>
+              </div>
+              <div class="quiz-score-area">
+                <span class="quiz-score" id="num-quiz-score">0 / 0</span>
+                <span class="quiz-streak" id="num-quiz-streak">&#128293; 0</span>
+              </div>
+            </div>
+            <div class="quiz-body" id="num-quiz-body">
+              <div class="quiz-prompt" id="num-quiz-prompt">Choose a quiz type above to begin!</div>
+              <img id="num-quiz-ref-img" class="learn-ref-img quiz-ref-img" alt="ASL reference" src="" style="display:none">
+              <div class="quiz-letter-big" id="num-quiz-letter-big" style="display:none"></div>
+              <div class="quiz-options" id="num-quiz-options"></div>
+              <div class="quiz-timer-wrap" id="num-quiz-timer-wrap" style="display:none">
+                <div class="quiz-timer-track"><div class="quiz-timer-fill" id="num-quiz-timer-fill"></div></div>
+                <span class="quiz-timer-text" id="num-quiz-timer-text">30s</span>
+              </div>
+            </div>
+            <div class="quiz-feedback" id="num-quiz-feedback"></div>
+            <div class="quiz-result" id="num-quiz-result" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- ═══ NUM FLASHCARD VIEW ═══ -->
+        <div id="num-learn-view-flashcard" class="learn-view" style="display:none">
+          <div class="fc-card-wrap">
+            <div class="fc-top-row">
+              <span class="fc-counter" id="num-fc-counter">1 / 10</span>
+              <div class="fc-filter-tabs">
+                <button class="fc-filter-btn active" onclick="numFcSetFilter('all')" id="num-fc-f-all">All</button>
+                <button class="fc-filter-btn" onclick="numFcSetFilter('new')" id="num-fc-f-new">New Only</button>
+                <button class="fc-filter-btn" onclick="numFcSetFilter('weak')" id="num-fc-f-weak">Need Practice</button>
+              </div>
+            </div>
+            <div class="fc-area">
+              <div class="fc-card" id="num-fc-card" onclick="numFcFlip()">
+                <div class="fc-front" id="num-fc-front">
+                  <div class="fc-front-letter" id="num-fc-front-letter">0</div>
+                  <div class="fc-front-hint">Tap to reveal</div>
+                </div>
+                <div class="fc-back" id="num-fc-back">
+                  <img id="num-fc-ref-img" class="learn-ref-img fc-ref-img" alt="ASL reference" src="">
+                  <div class="fc-back-desc" id="num-fc-back-desc"></div>
+                </div>
+              </div>
+            </div>
+            <div class="fc-controls">
+              <button class="fc-btn" onclick="numFcPrev()">&#8592;</button>
+              <button class="fc-btn fc-know" onclick="numFcKnow()">&#10003; Know It</button>
+              <button class="fc-btn fc-dunno" onclick="numFcDunno()">&#10007; Practice More</button>
+              <button class="fc-btn" onclick="numFcNext()">&#8594;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats dashboard -->
+        <div class="learn-stats-card">
+          <div class="card-label">Your Progress</div>
+          <div class="learn-stats-row">
+            <div class="learn-stat-box">
+              <div class="learn-stat-val" id="num-ls-mastered">0<span class="learn-stat-unit">/10</span></div>
+              <div class="learn-stat-lbl">Mastered</div>
+            </div>
+            <div class="learn-stat-box">
+              <div class="learn-stat-val" id="num-ls-accuracy">—</div>
+              <div class="learn-stat-lbl">Accuracy</div>
+            </div>
+            <div class="learn-stat-box">
+              <div class="learn-stat-val" id="num-ls-streak">0</div>
+              <div class="learn-stat-lbl">Best Streak</div>
+            </div>
+            <div class="learn-stat-box">
+              <div class="learn-stat-val" id="num-ls-time">0m</div>
+              <div class="learn-stat-lbl">Time Learning</div>
+            </div>
+          </div>
+          <button class="learn-reset-btn" onclick="numResetLearnProgress()">Reset All Progress</button>
+        </div>
+      </div>
+    </div>
+    <!-- end page-numbers -->
 
     <!-- HIDDEN collect panel for JS compatibility -->
     <div id="collect-panel" style="display:none">

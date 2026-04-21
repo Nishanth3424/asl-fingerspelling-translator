@@ -1080,6 +1080,39 @@ footer {
   .suggestion-chip { padding: 6px 10px; font-size: 0.72rem; min-height: 32px; }
 }
 
+/* ── Numbers Mode ── */
+.numbers-subnav {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+}
+.numbers-subnav-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.numbers-subnav-btn:hover { background: var(--surface2); color: var(--text); }
+.numbers-subnav-btn.active {
+  background: var(--teal-dim);
+  color: var(--teal-light);
+  box-shadow: inset 0 0 0 1px var(--teal-border);
+}
+.numbers-view { /* default visible */ }
+.num-grid { grid-template-columns: repeat(5, 1fr) !important; }
+.num-learn-grid { grid-template-columns: repeat(5, 1fr) !important; }
+
 /* Safe area (iPhone notch) */
 @supports (padding: max(0px)) {
   .navbar { padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
