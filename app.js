@@ -2187,109 +2187,11 @@ const NUM_CONFUSABLE = {
   '10':['A','S']
 };
 
-// Reference images for numbers — inline SVG data URIs (never break, no network needed)
-// Each SVG depicts the ASL hand shape for that number
-function _numSvg(paths, vb) {
-  return 'data:image/svg+xml,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + (vb||'0 0 200 200') + '" width="200" height="200">' +
-    '<rect width="200" height="200" rx="16" fill="%231a2636"/>' +
-    '<g transform="translate(100,105)" fill="none" stroke="%2300A896" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">' +
-    paths + '</g></svg>'
-  );
-}
-// Palm = ellipse centered at 0,0. Fingers extend upward (neg y). Thumb extends left.
-// ASL 0: O-shape (thumb+index touching in circle, others curled)
-// ASL 1: Index up, others curled
-// ASL 2: Index+middle up (V shape)
-// ASL 3: Thumb+index+middle up
-// ASL 4: Four fingers up, thumb across palm
-// ASL 5: All five fingers spread
-// ASL 6: Thumb+pinky touching, middle three up
-// ASL 7: Thumb+ring touching, index+middle+pinky up
-// ASL 8: Thumb+middle touching, index+ring+pinky up
-// ASL 9: Thumb+index touching, middle+ring+pinky up
-// ASL 10: Thumbs up (fist + thumb pointing up)
-const NUM_REFERENCE_URLS = {
-  '0': _numSvg(
-    '<ellipse cx="0" cy="5" rx="30" ry="40" stroke-width="5"/>' +
-    '<ellipse cx="0" cy="-30" rx="14" ry="14" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">0</text>'
-  ),
-  '1': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="0" y1="-17" x2="0" y2="-70"/>' +
-    '<line x1="-10" y1="-10" x2="-25" y2="5"/><line x1="10" y1="-10" x2="25" y2="5"/><line x1="18" y1="-5" x2="30" y2="12"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">1</text>'
-  ),
-  '2': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-8" y1="-17" x2="-16" y2="-70"/><line x1="8" y1="-17" x2="16" y2="-70"/>' +
-    '<line x1="-18" y1="-5" x2="-30" y2="5"/><line x1="18" y1="-5" x2="30" y2="12"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">2</text>'
-  ),
-  '3': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-8" y1="-17" x2="-12" y2="-70"/><line x1="8" y1="-17" x2="12" y2="-70"/>' +
-    '<line x1="-30" y1="0" x2="-50" y2="-25"/>' +
-    '<line x1="18" y1="-5" x2="30" y2="12"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">3</text>'
-  ),
-  '4': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-14" y1="-17" x2="-20" y2="-70"/><line x1="-4" y1="-17" x2="-6" y2="-72"/>' +
-    '<line x1="6" y1="-17" x2="8" y2="-72"/><line x1="16" y1="-17" x2="22" y2="-70"/>' +
-    '<path d="M-28,5 Q-35,-5 -25,10" stroke-width="3"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">4</text>'
-  ),
-  '5': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-16" y1="-17" x2="-26" y2="-68"/><line x1="-6" y1="-17" x2="-8" y2="-72"/>' +
-    '<line x1="6" y1="-17" x2="8" y2="-72"/><line x1="16" y1="-17" x2="26" y2="-68"/>' +
-    '<line x1="-30" y1="0" x2="-52" y2="-20"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">5</text>'
-  ),
-  '6': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-8" y1="-17" x2="-12" y2="-70"/><line x1="0" y1="-17" x2="0" y2="-72"/>' +
-    '<line x1="8" y1="-17" x2="12" y2="-70"/>' +
-    '<path d="M-28,2 Q-42,-15 -30,20" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<line x1="20" y1="-8" x2="28" y2="15"/><path d="M28,15 Q20,25 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">6</text>'
-  ),
-  '7': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-12" y1="-17" x2="-18" y2="-70"/><line x1="-2" y1="-17" x2="-2" y2="-72"/>' +
-    '<line x1="20" y1="-10" x2="28" y2="-65"/>' +
-    '<path d="M-28,2 Q-42,-12 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<line x1="10" y1="-12" x2="14" y2="8"/><path d="M14,8 Q8,18 -26,14" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">7</text>'
-  ),
-  '8': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-14" y1="-17" x2="-20" y2="-70"/>' +
-    '<line x1="8" y1="-17" x2="12" y2="-70"/><line x1="20" y1="-10" x2="28" y2="-65"/>' +
-    '<path d="M-28,2 Q-42,-12 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<line x1="-2" y1="-14" x2="0" y2="5"/><path d="M0,5 Q-8,18 -26,14" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">8</text>'
-  ),
-  '9': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="32" stroke-width="5"/>' +
-    '<line x1="-4" y1="-17" x2="-6" y2="-72"/><line x1="8" y1="-17" x2="12" y2="-70"/>' +
-    '<line x1="20" y1="-10" x2="28" y2="-65"/>' +
-    '<path d="M-28,2 Q-42,-15 -28,18" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<line x1="-14" y1="-14" x2="-12" y2="5"/><path d="M-12,5 Q-18,18 -28,14" stroke="%234DD0E1" stroke-width="3"/>' +
-    '<text x="0" y="60" text-anchor="middle" fill="%238899AA" font-size="18" font-family="Calibri" stroke="none">9</text>'
-  ),
-  '10': _numSvg(
-    '<ellipse cx="0" cy="15" rx="28" ry="35" stroke-width="5"/>' +
-    '<line x1="-30" y1="0" x2="-30" y2="-55" stroke-width="5"/>' +
-    '<circle cx="-30" cy="-58" r="5" fill="%2300A896" stroke="%2300A896"/>' +
-    '<line x1="-10" y1="-10" x2="-22" y2="5"/><line x1="0" y1="-12" x2="-8" y2="5"/>' +
-    '<line x1="10" y1="-10" x2="10" y2="8"/><line x1="20" y1="-5" x2="25" y2="12"/>' +
-    '<path d="M-5,40 L5,40 M-5,36 L5,36" stroke="%234DD0E1" stroke-width="2"/>' +
-    '<text x="0" y="65" text-anchor="middle" fill="%238899AA" font-size="16" font-family="Calibri" stroke="none">10 (shake)</text>'
-  ),
-};
+// Reference images for numbers — local PNG files from Kaggle dataset (never break)
+const NUM_REFERENCE_URLS = {};
+NUM_LABELS.forEach(d => {
+  NUM_REFERENCE_URLS[d] = './num-images/num_' + d + '.png';
+});
 
 function numSetRefImage(imgId, digit) {
   const img = document.getElementById(imgId);
