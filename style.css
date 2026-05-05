@@ -1120,3 +1120,658 @@ footer {
   .page-column  { padding-right: max(20px, env(safe-area-inset-right)); }
   footer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE BOTTOM TAB BAR — only when body.is-mobile
+══════════════════════════════════════════════════════════════ */
+.mobile-tabbar {
+  display: none;
+}
+.mobile-cam-toggle {
+  display: none;
+}
+
+body.is-mobile .mobile-tabbar {
+  display: flex;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(62px + env(safe-area-inset-bottom));
+  padding: 0 4px env(safe-area-inset-bottom);
+  background: rgba(11,25,41,0.97);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  z-index: 200;
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.35);
+}
+body.is-mobile .mtab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 2px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  transition: color 0.15s;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+body.is-mobile .mtab-btn svg {
+  width: 22px;
+  height: 22px;
+  transition: transform 0.15s;
+}
+body.is-mobile .mtab-btn.active {
+  color: var(--teal-light);
+}
+body.is-mobile .mtab-btn.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 25%;
+  right: 25%;
+  height: 3px;
+  background: var(--teal-light);
+  border-radius: 0 0 3px 3px;
+  box-shadow: 0 0 8px var(--teal-glow);
+}
+body.is-mobile .mtab-btn:active svg {
+  transform: scale(0.92);
+}
+
+/* Floating "expand camera" button when collapsed */
+body.is-mobile.cam-collapsed .mobile-cam-toggle {
+  display: flex;
+  position: fixed;
+  bottom: calc(74px + env(safe-area-inset-bottom));
+  right: 14px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: #fff;
+  border: 2px solid rgba(255,255,255,0.2);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  z-index: 150;
+  box-shadow: 0 6px 20px rgba(14,116,144,0.5);
+  -webkit-tap-highlight-color: transparent;
+}
+body.is-mobile.cam-collapsed .mobile-cam-toggle svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE LAYOUT OVERRIDES — body.is-mobile
+   Completely restructured layout: top nav, top video, scroll content, bottom tabs
+══════════════════════════════════════════════════════════════ */
+body.is-mobile {
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+}
+
+body.is-mobile::before {
+  background-size: 24px 24px;
+}
+
+/* === Top navbar: ultra-compact === */
+body.is-mobile .navbar {
+  padding: 0 12px;
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+  padding-top: env(safe-area-inset-top);
+  position: relative;
+}
+body.is-mobile .nav-inner {
+  height: 48px;
+  gap: 8px;
+}
+body.is-mobile .nav-brand { gap: 8px; min-width: 0; flex: 1; overflow: hidden; }
+body.is-mobile .nav-icon-wrap { width: 28px; height: 28px; border-radius: 7px; }
+body.is-mobile .nav-hand-icon { width: 14px; height: 14px; }
+body.is-mobile .nav-titles { min-width: 0; flex: 1; }
+body.is-mobile .nav-title {
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.is-mobile .nav-sub { display: none; }
+body.is-mobile .nav-pages { display: none; }
+body.is-mobile .nav-badge { display: none; }
+body.is-mobile .nav-right { gap: 6px; flex-shrink: 0; }
+body.is-mobile .model-chip {
+  font-size: 0.58rem;
+  padding: 3px 8px;
+  letter-spacing: 0.2px;
+}
+
+/* === App shell: vertical stack, fills space between navbar and bottom-tabbar === */
+body.is-mobile .app-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  height: calc(100vh - 48px - 62px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  height: calc(100dvh - 48px - 62px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  margin: 0;
+  overflow: hidden;
+}
+
+/* === Video column: fixed at top, compact === */
+body.is-mobile .video-column {
+  position: relative;
+  top: auto;
+  height: auto;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  padding-left: max(10px, env(safe-area-inset-left));
+  padding-right: max(10px, env(safe-area-inset-right));
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  overflow: visible;
+  gap: 6px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+body.is-mobile .video-container {
+  width: 42%;
+  max-width: 180px;
+  aspect-ratio: 4/3;
+  border-radius: 10px;
+  border-width: 1px;
+  flex-shrink: 0;
+}
+body.is-mobile .hand-status {
+  bottom: 4px;
+  font-size: 0.55rem;
+  padding: 3px 8px 3px 20px;
+}
+body.is-mobile .hand-status::before { left: 7px; width: 5px; height: 5px; }
+body.is-mobile .how-to-trigger {
+  width: 24px; height: 24px;
+  top: 4px; right: 4px;
+}
+body.is-mobile .how-to-trigger svg { width: 12px; height: 12px; }
+
+/* Aux panel sits beside the video on mobile */
+body.is-mobile .video-aux {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+}
+body.is-mobile .video-aux.hidden { display: none; }
+
+body.is-mobile .aux-label { font-size: 0.55rem; letter-spacing: 0.8px; }
+body.is-mobile .aux-live-letter {
+  font-size: 2.4rem;
+  text-shadow: 0 0 14px var(--teal-glow);
+}
+body.is-mobile .aux-live-conf { font-size: 0.65rem; }
+
+body.is-mobile #aux-recognize {
+  align-items: stretch;
+  justify-content: center;
+}
+body.is-mobile .status-msg {
+  font-size: 0.62rem;
+  padding: 4px 8px;
+}
+body.is-mobile .perf-row { gap: 6px; flex-wrap: wrap; }
+body.is-mobile .perf-chip { font-size: 0.58rem; padding: 2px 6px; }
+
+body.is-mobile .learn-match-display { font-size: 0.62rem; padding: 2px 8px; }
+body.is-mobile .learn-hold-wrap { gap: 6px; }
+body.is-mobile .learn-hold-label { font-size: 0.55rem; }
+
+/* How-to panel becomes overlay on mobile */
+body.is-mobile .how-to-panel {
+  position: fixed;
+  top: 60px;
+  left: 12px;
+  right: 12px;
+  z-index: 180;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* === Page column: only scrollable area === */
+body.is-mobile .page-column {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 12px 12px 28px;
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+  scroll-padding-bottom: 80px;
+}
+body.is-mobile .page-content { gap: 10px; }
+
+/* === Camera collapsed mode: hide video, expand content === */
+body.is-mobile.cam-collapsed .video-column {
+  display: none;
+}
+
+/* === Footer: hidden on mobile (bottom tabs replace it) === */
+body.is-mobile footer { display: none; }
+
+/* === Cards: tighter padding on mobile === */
+body.is-mobile .prediction-card { padding: 12px; }
+body.is-mobile .text-card { padding: 12px; gap: 10px; }
+body.is-mobile .practice-main-card { padding: 14px; }
+body.is-mobile .practice-grid-card { padding: 12px; }
+body.is-mobile .practice-drill-card { padding: 12px; }
+body.is-mobile .learn-header-card { padding: 12px; }
+body.is-mobile .learn-grid-card { padding: 10px 12px; }
+body.is-mobile .learn-stats-card { padding: 12px; }
+
+/* === Recognize page mobile === */
+body.is-mobile .pred-top {
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: stretch;
+}
+body.is-mobile .pred-letter-section { flex-direction: row; align-items: center; gap: 12px; justify-content: center; }
+body.is-mobile .letter-frame { width: 80px; height: 80px; }
+body.is-mobile .predicted-letter { font-size: 3rem; letter-spacing: -1px; }
+body.is-mobile .pred-stats-section {
+  flex-direction: row;
+  border-left: none;
+  border-top: 1px solid var(--border);
+  padding-left: 0;
+  padding-top: 8px;
+  justify-content: space-around;
+}
+body.is-mobile .session-stat {
+  flex-direction: column;
+  align-items: center;
+  border-bottom: none;
+  padding: 0;
+  gap: 1px;
+}
+body.is-mobile .stat-value { font-size: 1.3rem; }
+body.is-mobile .stat-label { font-size: 0.55rem; }
+
+body.is-mobile .current-word-display { padding: 10px 12px; min-height: 50px; }
+body.is-mobile #current-word-letters { font-size: 1.4rem; letter-spacing: 4px; }
+body.is-mobile .translated-text { font-size: 0.92rem; padding: 10px 12px; min-height: 56px; line-height: 1.5; }
+body.is-mobile .suggestion-btn { padding: 6px 12px; font-size: 0.78rem; min-height: 34px; }
+
+body.is-mobile .speed-control { padding: 10px; }
+body.is-mobile .speed-btns { gap: 6px; }
+body.is-mobile .speed-btn { min-height: 42px; font-size: 0.78rem; flex: 1; }
+body.is-mobile .commit-progress-wrap { gap: 6px; }
+body.is-mobile .commit-progress-label { min-width: 56px; font-size: 0.62rem; }
+
+body.is-mobile .text-controls { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+body.is-mobile .ctrl-btn {
+  min-height: 46px;
+  font-size: 0.78rem;
+  padding: 10px 6px;
+  flex-direction: row;
+  gap: 6px;
+}
+body.is-mobile .ctrl-btn svg { width: 14px; height: 14px; }
+
+/* === Practice page mobile === */
+body.is-mobile .page-header { padding: 0 0 6px; }
+body.is-mobile .page-title { font-size: 1.05rem; }
+body.is-mobile .page-desc { font-size: 0.72rem; }
+
+body.is-mobile .practice-header {
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+body.is-mobile .practice-target-letter { font-size: 4rem; line-height: 1; }
+body.is-mobile .practice-result {
+  font-size: 0.82rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+}
+body.is-mobile .practice-stats-row { font-size: 0.72rem; }
+
+body.is-mobile .practice-letter-grid {
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+body.is-mobile .practice-grid-cell {
+  font-size: 0.68rem;
+  padding: 8px 0;
+  min-height: 32px;
+}
+
+body.is-mobile .practice-controls {
+  flex-direction: column;
+  gap: 6px;
+}
+body.is-mobile .practice-btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  font-size: 0.82rem;
+  padding: 12px;
+}
+
+/* === Learn page mobile === */
+body.is-mobile .learn-header-top {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+body.is-mobile .learn-header-top > div:first-child { flex: 1; min-width: 0; }
+body.is-mobile .learn-ring-wrap { flex-shrink: 0; width: 56px; height: 56px; }
+body.is-mobile .learn-ring-svg { width: 56px; height: 56px; }
+body.is-mobile .learn-ring-pct { font-size: 0.7rem; }
+
+body.is-mobile .learn-mode-tabs {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 12px -12px 0;
+  padding: 0 12px 4px;
+  gap: 4px;
+  scrollbar-width: none;
+}
+body.is-mobile .learn-mode-tabs::-webkit-scrollbar { display: none; }
+body.is-mobile .learn-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: 40px;
+  padding: 10px 14px;
+  font-size: 0.74rem;
+  border-radius: 20px;
+}
+body.is-mobile .learn-tab svg { width: 14px; height: 14px; }
+
+body.is-mobile .learn-letter-grid {
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+body.is-mobile .num-learn-grid {
+  grid-template-columns: repeat(5, 1fr) !important;
+  gap: 5px;
+}
+body.is-mobile .learn-grid-cell {
+  padding: 10px 0;
+  font-size: 0.78rem;
+  min-height: 38px;
+  border-radius: 6px;
+}
+body.is-mobile .learn-legend { display: none; }
+body.is-mobile .learn-progress-text { font-size: 0.7rem; margin-top: 8px; }
+
+/* Browse view */
+body.is-mobile .learn-browse-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+body.is-mobile .learn-visual-card {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  text-align: center;
+}
+body.is-mobile .learn-ref-img {
+  width: auto;
+  max-width: min(200px, 100%);
+  height: auto;
+  max-height: 220px;
+  margin: 0 auto;
+  display: block;
+}
+body.is-mobile .learn-detail-card { padding: 12px; gap: 10px; }
+body.is-mobile .learn-detail-top { flex-direction: row; align-items: center; }
+body.is-mobile .learn-letter-huge { font-size: 3rem; line-height: 1; }
+body.is-mobile .learn-badges { gap: 6px; }
+body.is-mobile .learn-badge { font-size: 0.62rem; padding: 4px 10px; }
+body.is-mobile .learn-step-list li { font-size: 0.78rem; padding-left: 4px; line-height: 1.5; }
+body.is-mobile .learn-mnemonic-box,
+body.is-mobile .learn-similar-box,
+body.is-mobile .learn-tryit-box { padding: 10px 12px; font-size: 0.76rem; }
+body.is-mobile .learn-section-label { font-size: 0.6rem; }
+body.is-mobile .learn-tryit-msg { font-size: 0.74rem; }
+body.is-mobile .learn-detail-nav {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+body.is-mobile .learn-nav-btn {
+  flex: 1 1 calc(50% - 4px);
+  min-height: 44px;
+  font-size: 0.8rem;
+}
+body.is-mobile .learn-practice-btn {
+  flex: 1 1 100%;
+  min-height: 46px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* Lesson view */
+body.is-mobile .lesson-card { padding: 14px; }
+body.is-mobile .lesson-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+body.is-mobile .lesson-visual-col { align-items: center; }
+body.is-mobile .lesson-target-letter { font-size: 3.2rem; }
+body.is-mobile .lesson-ref-img { width: auto; max-width: min(180px, 100%); margin: 0 auto; display: block; }
+body.is-mobile .lesson-info-col { gap: 10px; }
+body.is-mobile .lesson-desc { font-size: 0.82rem; }
+body.is-mobile .lesson-feedback { font-size: 0.78rem; }
+body.is-mobile .lesson-controls { flex-wrap: wrap; gap: 6px; }
+body.is-mobile .lesson-btn {
+  flex: 1 1 calc(50% - 4px);
+  min-height: 44px;
+  font-size: 0.8rem;
+}
+body.is-mobile .lesson-btn.primary { flex-basis: 100%; }
+
+/* Quiz view */
+body.is-mobile .quiz-card { padding: 14px; }
+body.is-mobile .quiz-top-row { flex-direction: column; gap: 10px; align-items: stretch; }
+body.is-mobile .quiz-type-tabs {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: 4px;
+}
+body.is-mobile .quiz-type-tabs::-webkit-scrollbar { display: none; }
+body.is-mobile .quiz-type-btn {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 8px 14px;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+body.is-mobile .quiz-score-area {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+}
+body.is-mobile .quiz-letter-big { font-size: 4.5rem; line-height: 1; }
+body.is-mobile .quiz-ref-img { width: auto; max-width: min(180px, 100%); max-height: 200px; margin: 0 auto; display: block; }
+body.is-mobile .quiz-options {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+}
+body.is-mobile .quiz-opt-btn {
+  min-height: 56px;
+  font-size: 1.4rem;
+  font-weight: 700;
+  padding: 14px;
+}
+body.is-mobile .quiz-prompt { font-size: 0.86rem; padding: 8px 0; }
+body.is-mobile .quiz-feedback { font-size: 0.82rem; padding: 8px; }
+
+/* Flashcard view */
+body.is-mobile .fc-card-wrap { gap: 12px; }
+body.is-mobile .fc-top-row { flex-direction: column; gap: 8px; align-items: stretch; }
+body.is-mobile .fc-counter { text-align: center; font-size: 0.78rem; }
+body.is-mobile .fc-filter-tabs {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: 4px;
+  justify-content: center;
+}
+body.is-mobile .fc-filter-tabs::-webkit-scrollbar { display: none; }
+body.is-mobile .fc-filter-btn {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+body.is-mobile .fc-area { padding: 12px 0; }
+body.is-mobile .fc-card { width: 100%; max-width: 280px; min-height: 300px; }
+body.is-mobile .fc-front-letter { font-size: 6rem; }
+body.is-mobile .fc-front-hint { font-size: 0.74rem; }
+body.is-mobile .fc-ref-img { width: auto; max-width: min(180px, 70%); max-height: 200px; margin: 0 auto; display: block; }
+body.is-mobile .fc-back-desc { font-size: 0.82rem; padding: 8px 12px; }
+body.is-mobile .fc-controls {
+  display: grid;
+  grid-template-columns: 44px 1fr 1fr 44px;
+  gap: 6px;
+}
+body.is-mobile .fc-btn {
+  min-height: 46px;
+  font-size: 0.8rem;
+  padding: 10px 8px;
+}
+
+/* Stats panel */
+body.is-mobile .learn-stats-row {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+body.is-mobile .learn-stat-box { padding: 10px 8px; }
+body.is-mobile .learn-stat-val { font-size: 1.3rem; }
+body.is-mobile .learn-stat-unit { font-size: 0.7rem; }
+body.is-mobile .learn-stat-lbl { font-size: 0.62rem; }
+body.is-mobile .learn-reset-btn { padding: 12px; font-size: 0.78rem; min-height: 44px; }
+
+/* === Numbers page mobile === */
+body.is-mobile .numbers-subnav {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: 4px;
+  margin: 0 -4px 8px;
+  padding: 0 4px 4px;
+}
+body.is-mobile .numbers-subnav::-webkit-scrollbar { display: none; }
+body.is-mobile .numbers-subnav-btn {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  padding: 10px 12px;
+  min-height: 42px;
+}
+
+/* === Inputs and font sizing for iOS === */
+body.is-mobile input,
+body.is-mobile select,
+body.is-mobile textarea {
+  font-size: 16px; /* prevent iOS zoom-on-focus */
+}
+
+/* Disable touch callouts on UI chrome */
+body.is-mobile .navbar,
+body.is-mobile .mobile-tabbar,
+body.is-mobile button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* === Splash screen mobile sizing === */
+body.is-mobile .splash-content { padding: 20px; gap: 28px; }
+body.is-mobile .splash-icon-wrap { width: 56px; height: 56px; }
+body.is-mobile .splash-hand-icon { width: 28px; height: 28px; }
+body.is-mobile .splash-title { font-size: 1.2rem; }
+body.is-mobile .splash-subtitle { font-size: 0.82rem; }
+body.is-mobile .splash-meta { font-size: 0.62rem; line-height: 1.5; }
+
+/* === Hide background grid on mobile (cleaner look) === */
+body.is-mobile::before {
+  opacity: 0.5;
+}
+
+/* === Lesson hold bar visible on mobile === */
+body.is-mobile .lesson-hold-track { height: 8px; }
+body.is-mobile .learn-tryit-bar-wrap { gap: 8px; }
+body.is-mobile .learn-tryit-bar-track { height: 8px; }
+
+/* === Smooth scroll on tab change === */
+body.is-mobile .page-column { scroll-behavior: smooth; }
+
+/* === Landscape orientation: keep video on left side === */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.is-mobile .app-shell {
+    flex-direction: row;
+    height: calc(100vh - 48px - env(safe-area-inset-top));
+    height: calc(100dvh - 48px - env(safe-area-inset-top));
+  }
+  body.is-mobile .video-column {
+    width: 38%;
+    max-width: 280px;
+    flex-direction: column;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    height: 100%;
+    overflow-y: auto;
+  }
+  body.is-mobile .video-container { width: 100%; max-width: none; }
+  body.is-mobile .mobile-tabbar {
+    position: relative;
+    bottom: auto;
+    height: 56px;
+    padding-bottom: 0;
+    width: 56px;
+    flex-direction: column;
+    border-top: none;
+    border-left: 1px solid var(--border);
+  }
+  body.is-mobile .app-shell { padding-right: 0; }
+}

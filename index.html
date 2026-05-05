@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0b1929">
   <title>ASL Fingerspelling Translator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -849,6 +852,120 @@
     <span>Spring 2026</span>
   </div>
 </footer>
+
+<!-- ═══════════════════════════════════════════════
+     MOBILE BOTTOM TAB BAR (only visible when body.is-mobile)
+════════════════════════════════════════════════ -->
+<nav class="mobile-tabbar" id="mobile-tabbar">
+  <button class="mtab-btn active" id="mtab-recognize" onclick="switchMode('recognize')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+    </svg>
+    <span>Recognize</span>
+  </button>
+  <button class="mtab-btn" id="mtab-practice" onclick="switchMode('practice')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    <span>Practice</span>
+  </button>
+  <button class="mtab-btn" id="mtab-learn" onclick="switchMode('learn')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+    </svg>
+    <span>Learn</span>
+  </button>
+  <button class="mtab-btn" id="mtab-numbers" onclick="switchMode('numbers')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/>
+    </svg>
+    <span>Numbers</span>
+  </button>
+</nav>
+
+<!-- Mobile floating "show camera" toggle (when video collapsed for content focus) -->
+<button class="mobile-cam-toggle" id="mobile-cam-toggle" onclick="toggleMobileCam()" aria-label="Toggle camera view">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+  </svg>
+</button>
+
+<script>
+// ── Device detection: set body.is-mobile EARLY (before app.js loads) ──
+(function() {
+  function isMobileDevice() {
+    // Manual override via ?mobile=1 / ?desktop=1 (handy for testing)
+    try {
+      var qs = (location.search || '').toLowerCase();
+      if (qs.indexOf('mobile=1') !== -1) return true;
+      if (qs.indexOf('desktop=1') !== -1) return false;
+    } catch (e) {}
+
+    var ua = navigator.userAgent || navigator.vendor || window.opera || '';
+    var mobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
+    // iPad on iOS 13+ reports as desktop; detect via touch + Mac platform
+    var iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+    if (mobileUA || iPadOS) return true;
+
+    // Small viewport falls back to mobile layout regardless of touch.
+    // No mainstream laptop runs in a window narrower than ~820px so the
+    // bottom-tab layout is the better choice for anyone in this size range.
+    var smallScreen = window.matchMedia && window.matchMedia('(max-width: 820px)').matches;
+    return smallScreen;
+  }
+  function applyDeviceClass() {
+    var body = document.body;
+    if (!body) return;
+    if (isMobileDevice()) {
+      body.classList.add('is-mobile');
+      body.classList.remove('is-desktop');
+    } else {
+      body.classList.add('is-desktop');
+      body.classList.remove('is-mobile');
+    }
+  }
+  applyDeviceClass();
+  window.addEventListener('resize', applyDeviceClass);
+  window.addEventListener('orientationchange', applyDeviceClass);
+})();
+
+// ── Mobile camera collapse/expand toggle ──
+function toggleMobileCam() {
+  document.body.classList.toggle('cam-collapsed');
+}
+
+// ── Mirror desktop tab active state into mobile bottom tab bar ──
+(function() {
+  var pages = ['recognize', 'practice', 'learn', 'numbers'];
+  var origSwitchMode = null;
+  function syncMobileTabs(mode) {
+    pages.forEach(function(p) {
+      var btn = document.getElementById('mtab-' + p);
+      if (btn) btn.classList.toggle('active', p === mode);
+    });
+    // Auto-expand camera when switching tabs (in case user collapsed it)
+    document.body.classList.remove('cam-collapsed');
+    // Scroll content area to top on tab switch (mobile)
+    if (document.body.classList.contains('is-mobile')) {
+      var pc = document.querySelector('.page-column');
+      if (pc) pc.scrollTop = 0;
+      window.scrollTo(0, 0);
+    }
+  }
+  // Wrap switchMode after app.js loads
+  var checkInterval = setInterval(function() {
+    if (typeof window.switchMode === 'function' && !origSwitchMode) {
+      origSwitchMode = window.switchMode;
+      window.switchMode = function(mode) {
+        var r = origSwitchMode.apply(this, arguments);
+        syncMobileTabs(mode);
+        return r;
+      };
+      clearInterval(checkInterval);
+    }
+  }, 50);
+})();
+</script>
 
 <script src="app.js"></script>
 <script>
